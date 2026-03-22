@@ -7,6 +7,7 @@ import threading
 import html
 from typing import Optional, Dict, List, Tuple, Union
 from dotenv import load_dotenv
+load_dotenv()
 from flask import Flask
 
 from telegram import Update, Chat, ChatMember, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton, ReactionTypeEmoji
@@ -59,11 +60,11 @@ from leaderboard import (
     get_game_names,
     GAME_CODE_NAMES,
 )
+from gemini_ai import gemini_bot
 
+# Global bot username for mentions
+BOT_USERNAME = None
 
-
-# Load environment variables
-load_dotenv()
 
 # Enable logging
 logging.basicConfig(
@@ -780,7 +781,31 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if not message or chat.type == ChatType.PRIVATE or not message.text:
         return
+
+    # Check for mentions or replies to the bot for Gemini savage responses
+    is_reply_to_bot = (
+        message.reply_to_message and 
+        message.reply_to_message.from_user.id == context.bot.id
+    )
     
+    global BOT_USERNAME
+    if not BOT_USERNAME:
+        BOT_USERNAME = (await context.bot.get_me()).username
+        
+    is_mentioned = f"@{BOT_USERNAME}" in message.text
+
+    if is_reply_to_bot or is_mentioned:
+        # Clean the message text if mentioned
+        clean_text = message.text.replace(f"@{BOT_USERNAME}", "").strip()
+        # Only respond if there's actual text or it's a reply
+        if clean_text or is_reply_to_bot:
+            await chat.send_chat_action("typing")
+            response = await gemini_bot.get_savage_response(clean_text or message.text)
+            await message.reply_text(response)
+                # If it's a direct mention/reply and not an obvious game answer, 
+                # we might want to stop here. But some games use text replies.
+                # For now, let it fall through to game logic if a session exists.
+
     session = game_manager.get_game(chat.id)
     
     # If no session exists, ignore
@@ -3851,6 +3876,9 @@ async def post_init(application: Application) -> None:
     await application.bot.initialize()
     bot_info = await application.bot.get_me()
     logger.info(f"Bot initialized: {bot_info.id} (@{bot_info.username})")
+    
+    global BOT_USERNAME
+    BOT_USERNAME = bot_info.username
     
     # Trigger background caching on startup with proper context
     # Use a dummy context since ensure_memes_cached only needs context.bot
