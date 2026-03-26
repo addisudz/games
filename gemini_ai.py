@@ -74,7 +74,7 @@ class GeminiAI:
         key = self.api_keys[self.current_key_index]
         genai.configure(api_key=key)
         self.model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
+            model_name="gemini-1.5-flash-latest",
             system_instruction=SYSTEM_INSTRUCTION
         )
         logger.info(f"Gemini AI configured with key index {self.current_key_index}")
