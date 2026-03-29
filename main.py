@@ -51,7 +51,7 @@ from guess_addis import GuessAddisGame
 from hear_me_out import HearMeOutGame
 from name_the_player import NameThePlayerGame
 from movie_scene import MovieSceneGame
-from spades import SpadesGame, SpadesGameState
+from rummy import RummyGame
 from settings_manager import settings_manager
 from leaderboard import (
     record_game_scores,
@@ -156,7 +156,7 @@ GAME_CATEGORIES = {
         "games": [("3", "Guess the Imposter"), ("14", "The Silent Game"), ("15", "20 Questions"), ("21", "Hear Me Out")]
     },
     "Card Games": {
-        "games": [("17", "Crazy 8"), ("24", "Spades")]
+        "games": [("17", "Rummy")]
     }
 }
 
@@ -179,14 +179,13 @@ GAMES_METADATA = {
     "14": ("The Silent Game", "2"),
     "15": ("20 Questions", "2"),
     "16": ("Guess the Song", "2"),
-    "17": ("Crazy 8", "2"),
+    "17": ("Rummy", "2"),
     "18": ("Guess the Book", "2"),
     "19": ("Guess the Marvel Character", "2"),
     "20": ("Guess Addis", "2"),
     "21": ("Hear Me Out", "2"),
     "22": ("Name the Player", "2"),
-    "23": ("Movie Scene", "2"),
-    "24": ("Spades", "4")
+    "23": ("Movie Scene", "2")
 }
 
 
@@ -516,14 +515,13 @@ async def handle_game_menu_callback(update: Update, context: ContextTypes.DEFAUL
                 "14": ("The Silent Game", "2"),
                 "15": ("20 Questions", "2"),
                 "16": ("Guess the Song", "2"),
-                "17": ("Crazy 8", "2"),
+                "17": ("Rummy", "2"),
                 "18": ("Guess the Book", "2"),
                 "19": ("Guess the Marvel Character", "2"),
                 "20": ("Guess Addis", "2"),
                 "21": ("Hear Me Out", "2"),
                 "22": ("Name the Player", "2"),
-                "23": ("Movie Scene", "2"),
-                "24": ("Spades", "4")
+                "23": ("Movie Scene", "2")
             }
             
             game_name, min_players = game_info.get(game_code, ("General Knowledge", "2"))
@@ -649,8 +647,8 @@ async def start_game_after_delay(chat_id: int, context: ContextTypes.DEFAULT_TYP
             # Guess the Song
             await start_song_game(chat_id, context, session)
         elif session.game_code == "17":
-            # Crazy 8
-            await start_crazy8_game(chat_id, context, session)
+            # Rummy
+            await start_rummy_game(chat_id, context, session)
         elif session.game_code == "18":
             # Guess the Book
             await start_book_game(chat_id, context, session)
@@ -669,11 +667,6 @@ async def start_game_after_delay(chat_id: int, context: ContextTypes.DEFAULT_TYP
         elif session.game_code == "23":
             # Movie Scene
             await start_movie_scene_game(chat_id, context, session)
-        elif session.game_code == "24":
-            # Spades
-            await start_spades_game(chat_id, context, session)
-
-
 
 
 async def start_hear_me_out_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
@@ -3072,22 +3065,39 @@ async def ensure_stickers_cached(context: ContextTypes.DEFAULT_TYPE) -> Dict[str
             
         try:
             sticker_set = await context.bot.get_sticker_set("DeckofCardsTraditional")
-            ranks = ['ace', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king']
-            suits = ['spades', 'diamonds', 'hearts', 'clubs']
+            # The sticker pack starts with 2s and ends with Aces
+            ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king', 'ace']
+            # Suits order from emoji inspection: Clubs, Diamonds, Hearts, Spades
+            suits = ['clubs', 'diamonds', 'hearts', 'spades']
             
-            # Mapping based on observation: indices 0-51 cover the 52 cards
             for i, sticker in enumerate(sticker_set.stickers):
-                if i >= 52: break # Skip joker for now
-                
-                rank_idx = i // 4
-                suit_idx = i % 4
-                
-                rank = ranks[rank_idx]
-                suit = suits[suit_idx]
-                
-                key = f"{rank}_of_{suit}"
-                cache[key] = sticker.file_id
-            
+                if i <= 51:
+                    rank_idx = i // 4
+                    suit_idx = i % 4
+                    rank = ranks[rank_idx]
+                    suit = suits[suit_idx]
+                    key = f"{rank}_of_{suit}"
+                    cache[key] = sticker.file_id
+                elif i == 52:
+                    cache["joker"] = sticker.file_id
+                elif 53 <= i <= 104:
+                    rank_idx = (i - 53) // 4
+                    suit_idx = (i - 53) % 4
+                    rank = ranks[rank_idx]
+                    suit = suits[suit_idx]
+                    key = f"{rank}_of_{suit}_dark"
+                    cache[key] = sticker.file_id
+                elif i == 105:
+                    cache["joker_dark"] = sticker.file_id
+                elif i == 106:
+                    cache["action_info"] = sticker.file_id  # ❓
+                elif i == 107:
+                    cache["action_draw"] = sticker.file_id  # ➕
+                elif i == 108:
+                    cache["action_grab"] = sticker.file_id  # 🫳
+                elif i == 109:
+                    cache["action_pass"] = sticker.file_id  # ➡️
+
             with open(cache_path, 'w') as f:
                 json.dump(cache, f, indent=2)
             
@@ -3315,162 +3325,85 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await iq.answer(results, cache_time=5, is_personal=True, next_offset=next_offset)
         return
 
-    # 2. Handle Crazy 8 Cards
-    elif query_text.startswith("c8"):
+    # 2. Handle Rummy Cards
+    elif query_text.startswith("rum"):
         cache = get_sticker_cache()
         asyncio.create_task(ensure_stickers_cached(context))
-        
-        # Find active session
+
+        # Find active Rummy session for this user
         session = None
         for s in game_manager.active_games.values():
             if user.id in s.players and s.game_code == "17":
                 session = s
                 break
-        
+
         if not session or not session.game:
-            await iq.answer([], cache_time=1, is_personal=True, switch_pm_text="No active game found", switch_pm_parameter="help")
+            await iq.answer([], cache_time=1, is_personal=True,
+                            switch_pm_text="No active Rummy game", switch_pm_parameter="help")
             return
 
         is_turn = (user.id == session.game.current_player_id)
-        
+        hand = session.game.get_sorted_hand(user.id)
         results = []
-        hand = session.game.hands.get(user.id, [])
-        
-        # Filter hand if user typed something specific after 'c8 '
-        search_filter = query_text[2:].strip().lower()
-        
+
         for i, card in enumerate(hand):
-            card_desc = str(card)
-            if search_filter and search_filter not in card_desc.lower():
-                continue
-                
-            file_id = cache.get(f"{card.rank}_of_{card.suit}")
+            # If it's the player's turn → show normal card sticker
+            # If NOT their turn → show the blackened (dark) version
+            if is_turn:
+                file_id = cache.get(card.sticker_key)
+            else:
+                file_id = cache.get(card.dark_sticker_key) or cache.get(card.sticker_key)
+
             if file_id:
-                # Note: InlineQueryResultCachedSticker doesn't support captions in the same way photos do
-                # It just sends the sticker.
                 results.append(
                     InlineQueryResultCachedSticker(
-                        id=f"c8_{user.id}_{i}",
+                        id=f"rum_{user.id}_{i}",
                         sticker_file_id=file_id
                     )
                 )
 
-        # Add "Draw Card" as an article at the end
-        if is_turn:
-            results.append(
-                InlineQueryResultArticle(
-                    id=f"c8_draw_{user.id}",
-                    title="🃏 Draw a Card",
-                    description="Draw a card from the deck and pass your turn.",
-                    input_message_content=InputTextMessageContent("Draw a card")
-                )
-            )
-
-        await iq.answer(results, cache_time=0, is_personal=True)
-        return
-
-    # 3. Handle Spades Cards
-    elif query_text.startswith("sp"):
-        cache = get_sticker_cache()
-        asyncio.create_task(ensure_stickers_cached(context))
-        
-        session = None
-        for s in game_manager.active_games.values():
-            if user.id in s.players and s.game_code == "24":
-                session = s
-                break
-        
-        if not session or not getattr(session, 'game', None) or session.game.state != SpadesGameState.PLAYING_TRICK:
-            await iq.answer([], cache_time=1, is_personal=True, switch_pm_text="No active game found", switch_pm_parameter="help")
-            return
-
-        is_turn = (user.id == session.game.current_player_id)
-        results = []
-        hand = session.game.hands.get(user.id, [])
-        search_filter = query_text[2:].strip().lower()
-        
-        valid_plays = session.game.get_valid_plays(hand) if is_turn else hand
-        
-        for i, card in enumerate(hand):
-            card_desc = str(card)
-            if search_filter and search_filter not in card_desc.lower():
-                continue
-                
-            file_id = cache.get(f"{card.rank}_of_{card.suit}")
-            if file_id:
-                results.append(
-                    InlineQueryResultCachedSticker(
-                        id=f"sp_{user.id}_{i}",
-                        sticker_file_id=file_id
-                    )
-                )
+        if is_turn and session.game.player_phase.get(user.id) == 'draw':
+            grab_file_id = cache.get("action_grab")
+            draw_file_id = cache.get("action_draw")
+            
+            if grab_file_id:
+                results.insert(0, InlineQueryResultCachedSticker(
+                    id=f"rum_grab_{user.id}",
+                    sticker_file_id=grab_file_id
+                ))
+            if draw_file_id:
+                results.insert(0, InlineQueryResultCachedSticker(
+                    id=f"rum_draw_{user.id}",
+                    sticker_file_id=draw_file_id
+                ))
 
         await iq.answer(results, cache_time=0, is_personal=True)
         return
 
 
 async def handle_sticker_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Detect card plays via stickers in Crazy 8."""
+    """Route sticker messages to the appropriate game handler (Rummy)."""
     message = update.effective_message
     if not message or not message.sticker:
         return
-        
+
     user = update.effective_user
     chat = update.effective_chat
     session = game_manager.get_game(chat.id)
-    
-    if not session or (session.game_code not in ("17", "24")) or not session.game:
-        return
-        
-    if user.id not in session.game.players:
+
+    if not session or not session.game:
         return
 
-    # Map sticker back to card
-    sticker_id = message.sticker.file_id
-    cache = get_sticker_cache()
-    
-    card_key = None
-    for key, fid in cache.items():
-        if fid == sticker_id:
-            card_key = key
-            break
-            
-    if not card_key:
-        return # Not a card sticker
-
-    # card_key is like "ace_of_spades"
-    card_name = card_key.replace('_', ' ')
-    
-    # Process play
+    # Rummy (game 17)
     if session.game_code == "17":
-        success, msg_text, filename = session.game.play_card(user.id, card_name)
-        if success:
-            await context.bot.send_message(chat_id=chat.id, text=f"✅ {session.game.players[user.id]} played <b>{card_name.title()}</b>.\n\n{msg_text}", parse_mode="HTML")
-            if session.game.is_last_card(user.id):
-                 await context.bot.send_message(chat_id=chat.id, text=f"⚠️ {session.game.players[user.id]} has only ONE card left!")
-            if session.game.is_game_over(user.id):
-                await end_game(chat.id, context, session)
-            else:
-                await send_c8_buttons(chat.id, context, session)
-        else:
-            await message.reply_text(f"⚠️ {msg_text}", parse_mode="HTML")
-    elif session.game_code == "24":
-        success, msg_text, filename, trick_finished, eval_msg = session.game.play_card(user.id, card_name)
-        if success:
-            await context.bot.send_message(chat_id=chat.id, text=f"✅ {session.game.players[user.id]} played <b>{card_name.title()}</b>.\n\n{msg_text}", parse_mode="HTML")
-            if trick_finished and eval_msg:
-                await context.bot.send_message(chat_id=chat.id, text=eval_msg, parse_mode="HTML")
-            if session.game.game_over:
-                await end_game(chat.id, context, session)
-            else:
-                if session.game.state == SpadesGameState.PLAYING_TRICK and not trick_finished:
-                    await send_spades_buttons(chat.id, context, session)
-                elif session.game.state == SpadesGameState.BIDDING:
-                    await send_spades_bidding(chat.id, context, session)
-                elif trick_finished and session.game.state == SpadesGameState.PLAYING_TRICK:
-                    await send_spades_buttons(chat.id, context, session)
-        else:
-            await message.reply_text(f"⚠️ {msg_text}", parse_mode="HTML")
+        if user.id not in session.game.players:
+            return
+        await handle_rummy_sticker(update, context, session)
+        return
+
+    # Silent game sticker handling
+    if session.game_code == "14":
+        await process_silent_game_content(update, context, session)
 
 
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3888,54 +3821,216 @@ async def post_init(application: Application) -> None:
     asyncio.create_task(ensure_stickers_cached(dummy_context))
 
 
-async def start_crazy8_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
-    """Start the Crazy 8 game."""
-    first_msg_filename = session.game.start_game()
-    if not first_msg_filename:
-        await context.bot.send_message(chat_id=chat_id, text="Error starting game.")
+async def start_rummy_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
+    """Start the Rummy game: deal cards, show order, send starting discard card."""
+    game: RummyGame = session.game
+    if not game.start_game():
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ Rummy requires 2–6 players. Game cancelled.",
+        )
+        session.end_game()
+        game_manager.remove_game(chat_id)
         return
-        
+
+    n = len(game.players)
+    cards_each = game.CARDS_PER_PLAYER[n]
+
+    # Build order announcement
+    order_lines = []
+    for i, pid in enumerate(game.player_ids):
+        order_lines.append(f"{i+1}. <a href=\"tg://user?id={pid}\">{game.players[pid]}</a>")
+    order_text = "\n".join(order_lines)
+
     await context.bot.send_message(
         chat_id=chat_id,
-        text="🃏 <b>Crazy 8 Started!</b> 🃏\n\nEach player has been dealt 7 cards.",
+        text=(
+            f"🃏 <b>Rummy has started!</b> 🃏\n\n"
+            f"👥 <b>{n} players</b> — each dealt <b>{cards_each} cards</b>\n\n"
+            f"<b>Play order:</b>\n{order_text}\n\n"
+            f"<b>Goal:</b> Be the first to form <b>two 3-card runs</b> + <b>one 4-card run</b> of the same suit "
+            f"(consecutive ranks).\n\n"
+            f"<b>How to play each turn:</b>\n"
+            f"• Send the <b>draw</b> sticker to draw from the deck\n"
+            f"• Send the <b>grab</b> sticker to take the top discard\n"
+            f"• Send a <b>card sticker</b> to discard it and end your turn\n"
+            f"• Send the <b>info</b> sticker anytime to see order &amp; card counts"
+        ),
         parse_mode="HTML"
     )
-    
-    # Send top card as sticker
-    top_card = session.game.get_top_card()
-    cache = get_sticker_cache()
-    sticker_id = cache.get(f"{top_card.rank}_of_{top_card.suit}")
-    
-    caption = f"The top card is {str(top_card)}.\n\nIt is {session.game.players[session.game.current_player_id]}'s turn."
-    
-    try:
-        if sticker_id:
-            await context.bot.send_sticker(chat_id=chat_id, sticker=sticker_id)
-        await context.bot.send_message(chat_id=chat_id, text=caption, parse_mode="HTML")
-    except Exception as e:
-        logger.error(f"Error sending start card: {e}")
-        await context.bot.send_message(chat_id=chat_id, text=caption, parse_mode="HTML")
-        
-    await send_c8_buttons(chat_id, context, session)
 
-async def send_c8_buttons(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
-    """Send inline buttons for viewing hand and drawing a card."""
+    # Show starting discard card as sticker
+    top_discard = game.get_top_discard()
+    if top_discard:
+        cache = get_sticker_cache()
+        sticker_id = cache.get(top_discard.sticker_key)
+        try:
+            if sticker_id:
+                await context.bot.send_sticker(chat_id=chat_id, sticker=sticker_id)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🃏 Starting discard: <b>{str(top_discard)}</b>",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Error sending rummy start card: {e}")
+
+    # Announce first player's turn
+    await send_rummy_turn_message(chat_id, context, session)
+
+
+async def send_rummy_turn_message(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
+    """Send 'It's X's turn' with Cards inline button."""
+    game: RummyGame = session.game
+    cp = game.current_player_id
+    player_name = game.players[cp]
+
+    # Top discard info
+    top = game.get_top_discard()
+    discard_text = f"Top discard: <b>{str(top)}</b>" if top else "Discard pile is empty."
+
     keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🃏 Play / Draw", switch_inline_query_current_chat="c8")
-        ]
+        [InlineKeyboardButton("🃏 Cards", switch_inline_query_current_chat="rum")]
     ])
+
     await context.bot.send_message(
         chat_id=chat_id,
-        text=f"👉 <a href=\"tg://user?id={session.game.current_player_id}\">{session.game.players[session.game.current_player_id]}</a>, it's your turn!\nClick the button below to view your cards and play one.",
+        text=(
+            f"👉 It's <a href=\"tg://user?id={cp}\">{player_name}</a>'s turn!\n"
+            f"{discard_text}\n\n"
+            f"<i>Draw/Grab first, then discard a card.</i>"
+        ),
         reply_markup=keyboard,
         parse_mode="HTML"
     )
 
-async def handle_c8_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Legacy/Simplified button handler. Viewing hands is now via inline queries."""
-    query = update.callback_query
-    await query.answer("Use the 'Play / Draw' button to interact!", show_alert=True)
+
+async def handle_rummy_sticker(update, context: ContextTypes.DEFAULT_TYPE, session) -> None:
+    """
+    Handle stickers sent during a Rummy game.
+    Detects: draw sticker, grab sticker, info sticker, and card stickers.
+    """
+    message = update.effective_message
+    user = update.effective_user
+    chat = update.effective_chat
+    game: RummyGame = session.game
+
+    sticker_id = message.sticker.file_id
+    cache = get_sticker_cache()
+
+    # ── Special action stickers ──────────────────────────────────────────────
+    draw_sticker_id = cache.get("action_draw")
+    grab_sticker_id = cache.get("action_grab")
+    info_sticker_id = cache.get("action_info")
+
+    if draw_sticker_id and sticker_id == draw_sticker_id:
+        # Draw from deck
+        if user.id != game.current_player_id:
+            await message.reply_text("❌ Not your turn!")
+            return
+        success, msg, card = game.draw_from_deck(user.id)
+        if success:
+            # Send drawn card privately via inline alert is not possible; send in group
+            card_sticker = cache.get(card.sticker_key) if card else None
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"📥 <a href=\"tg://user?id={user.id}\">{game.players[user.id]}</a> drew a card from the deck.\n"
+                     f"<i>Now discard a card to end your turn.</i>",
+                parse_mode="HTML"
+            )
+            if card_sticker:
+                # Send only to user? We can't DM easily; suppress card reveal in group
+                pass
+        else:
+            await message.reply_text(f"⚠️ {msg}")
+        return
+
+    if grab_sticker_id and sticker_id == grab_sticker_id:
+        # Grab top discard
+        if user.id != game.current_player_id:
+            await message.reply_text("❌ Not your turn!")
+            return
+        success, msg, card = game.grab_from_discard(user.id)
+        if success:
+            grabbed_sticker = cache.get(card.sticker_key) if card else None
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"🤏 <a href=\"tg://user?id={user.id}\">{game.players[user.id]}</a> grabbed <b>{str(card)}</b> from the discard pile.\n"
+                     f"<i>Now discard a card to end your turn.</i>",
+                parse_mode="HTML"
+            )
+            if grabbed_sticker:
+                await context.bot.send_sticker(chat_id=chat.id, sticker=grabbed_sticker)
+        else:
+            await message.reply_text(f"⚠️ {msg}")
+        return
+
+    if info_sticker_id and sticker_id == info_sticker_id:
+        # Info: show order + card counts
+        if user.id not in game.players:
+            return
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=game.get_player_order_text(),
+            parse_mode="HTML"
+        )
+        return
+
+    # ── Card sticker → discard ────────────────────────────────────────────────
+    # Find which card this sticker maps to (normal or dark variant)
+    card_key = None
+    for key, fid in cache.items():
+        if fid == sticker_id and not key.startswith("action_"):
+            card_key = key.replace("_dark", "")  # normalise dark key
+            break
+
+    if not card_key:
+        return  # Unknown sticker — ignore
+
+    if user.id not in game.players:
+        return
+
+    # Not-your-turn guard: dark stickers or any sticker when not active
+    if user.id != game.current_player_id:
+        await message.reply_text("❌ Not your turn!")
+        return
+
+    # Must draw first
+    if game.player_phase.get(user.id) == 'draw':
+        await message.reply_text("⚠️ You must draw or grab a card first!")
+        return
+
+    # Attempt discard
+    success, msg, discarded_card, won = game.discard_card(user.id, card_key)
+    if not success:
+        await message.reply_text(f"⚠️ {msg}")
+        return
+
+    # Show discarded card sticker to group
+    disc_sticker = cache.get(discarded_card.sticker_key) if discarded_card else None
+    try:
+        if disc_sticker:
+            await context.bot.send_sticker(chat_id=chat.id, sticker=disc_sticker)
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"♻️ <a href=\"tg://user?id={user.id}\">{game.players[user.id]}</a> discarded <b>{str(discarded_card)}</b>.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Error sending discard sticker: {e}")
+
+    if won:
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"🏆 <b>{game.players[user.id]} wins Rummy!</b> 🎉\n\n"
+                 f"They formed two 3-card runs and one 4-card run!",
+            parse_mode="HTML"
+        )
+        await end_game(chat.id, context, session)
+    else:
+        await send_rummy_turn_message(chat.id, context, session)
+
+
 
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -4117,128 +4212,7 @@ def _build_game_filter_message():
     return text, InlineKeyboardMarkup(rows)
 
 
-async def start_spades_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
-    if not session.game.start_game():
-        await context.bot.send_message(chat_id=chat_id, text="Spades requires exactly 2 or 4 players.")
-        session.end_game()
-        game_manager.remove_game(chat_id)
-        return
-        
-    if session.game.state == SpadesGameState.PARTNER_SELECTION:
-        selector = session.game.players[session.game.selector_id]
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"♠️ <b>Spades Game Started!</b> ♠️\n\n4 Players joined.\n{selector}, please select your partner for the game:",
-            reply_markup=_build_spades_partner_keyboard(session),
-            parse_mode="HTML"
-        )
-    else:
-        # 2 player mode starts bidding directly
-        t1, t2 = session.game.get_team_players(1)[0], session.game.get_team_players(2)[0]
-        n1, n2 = session.game.players[t1], session.game.players[t2]
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"♠️ <b>Spades Game Started! (Head to Head)</b> ♠️\n\n{n1} vs {n2}\n\nCards have been dealt. It is time to bid!",
-            parse_mode="HTML"
-        )
-        await send_spades_bidding(chat_id, context, session)
 
-def _build_spades_partner_keyboard(session):
-    keyboard = []
-    for pid in session.game.player_ids:
-        if pid != session.game.selector_id:
-            name = session.game.players[pid]
-            keyboard.append([InlineKeyboardButton(name, callback_data=f"sp_partner_{pid}")])
-    return InlineKeyboardMarkup(keyboard)
-
-async def handle_spades_partner_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    user = query.from_user
-    chat = update.effective_chat
-    session = game_manager.get_game(chat.id)
-    
-    if not session or session.game_code != "24" or session.game.state != SpadesGameState.PARTNER_SELECTION:
-        await query.answer("Invalid action.", show_alert=True)
-        return
-        
-    if user.id != session.game.selector_id:
-        await query.answer("You are not selecting the partner!", show_alert=True)
-        return
-        
-    partner_id = int(query.data.split("_")[2])
-    success = session.game.choose_partner(user.id, partner_id)
-    if success:
-        await query.message.delete()
-        t1 = [session.game.players[pid] for pid in session.game.get_team_players(1)]
-        t2 = [session.game.players[pid] for pid in session.game.get_team_players(2)]
-        await context.bot.send_message(
-            chat_id=chat.id,
-            text=f"🤝 <b>Teams Formed!</b>\n\n<b>Team 1:</b> {t1[0]} & {t1[1]}\n<b>Team 2:</b> {t2[0]} & {t2[1]}\n\nCards have been dealt. It is time to bid!",
-            parse_mode="HTML"
-        )
-        await send_spades_bidding(chat.id, context, session)
-    else:
-        await query.answer("Couldn't select partner.", show_alert=True)
-
-async def send_spades_bidding(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session: GameSession) -> None:
-    keyboard = []
-    row1, row2, row3 = [], [], []
-    for i in range(14):
-        btn = InlineKeyboardButton(f"{i}", callback_data=f"sp_bid_{i}")
-        if i <= 4: row1.append(btn)
-        elif i <= 9: row2.append(btn)
-        else: row3.append(btn)
-    keyboard.extend([row1, row2, row3])
-    
-    curr_player_name = session.game.players[session.game.current_player_id]
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=f"👉 <a href=\"tg://user?id={session.game.current_player_id}\">{curr_player_name}</a>, it is your turn to bid! What is your bid (0-13)?",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML"
-    )
-
-async def handle_spades_bid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    user = query.from_user
-    chat = update.effective_chat
-    session = game_manager.get_game(chat.id)
-    
-    if not session or session.game_code != "24" or session.game.state != SpadesGameState.BIDDING:
-        await query.answer("Not bidding phase.", show_alert=True)
-        return
-        
-    if user.id != session.game.current_player_id:
-        await query.answer("It is not your turn to bid!", show_alert=True)
-        return
-        
-    bid_amt = int(query.data.split("_")[2])
-    success, msg = session.game.place_bid(user.id, bid_amt)
-    if success:
-        await query.message.delete()
-        await context.bot.send_message(chat_id=chat.id, text=msg)
-        if session.game.state == SpadesGameState.PLAYING_TRICK:
-            t1_bids = sum(session.game.bids[pid] for pid in session.game.get_team_players(1))
-            t2_bids = sum(session.game.bids[pid] for pid in session.game.get_team_players(2))
-            await context.bot.send_message(chat_id=chat.id, text=f"📊 <b>Total Bids:</b>\nTeam 1: {t1_bids}\nTeam 2: {t2_bids}", parse_mode="HTML")
-            await send_spades_buttons(chat.id, context, session)
-        else:
-            session.game._advance_turn()
-            await send_spades_bidding(chat.id, context, session)
-    else:
-        await query.answer(msg, show_alert=True)
-
-async def send_spades_buttons(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session: GameSession) -> None:
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("♠️ Play Card", switch_inline_query_current_chat="sp")]
-    ])
-    cp = session.game.current_player_id
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=f"👉 <a href=\"tg://user?id={cp}\">{session.game.players[cp]}</a>, it's your turn to play!\nClick below to view and play your cards.",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
 
 
 def main() -> None:
@@ -4256,8 +4230,6 @@ def main() -> None:
     application.add_error_handler(error_handler)
     
     # Add handlers
-    application.add_handler(CallbackQueryHandler(handle_spades_partner_callback, pattern="^sp_partner_"))
-    application.add_handler(CallbackQueryHandler(handle_spades_bid_callback, pattern="^sp_bid_"))
     application.add_handler(ChatMemberHandler(my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("join", join_command))
@@ -4276,7 +4248,6 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_ts_callback, pattern="^ts_vote_"))
     application.add_handler(CallbackQueryHandler(handle_quit_vote_callback, pattern="^quit_game_vote$"))
     application.add_handler(CallbackQueryHandler(handle_20q_callback, pattern="^view_secret_word$"))
-    application.add_handler(CallbackQueryHandler(handle_c8_callback, pattern="^c8_"))
     application.add_handler(InlineQueryHandler(inline_query_handler))
     application.add_handler(ChosenInlineResultHandler(chosen_inline_result_handler))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
