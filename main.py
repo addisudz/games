@@ -3964,7 +3964,7 @@ async def start_rummy_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, ses
     if not game.start_game():
         await context.bot.send_message(
             chat_id=chat_id,
-            text="⚠️ Rummy requires 2–6 players. Game cancelled.",
+            text="⚠️ Rummy requires 2–10 players. Game cancelled.",
         )
         session.end_game()
         game_manager.remove_game(chat_id)

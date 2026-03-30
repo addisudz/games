@@ -24,14 +24,6 @@ class RummyCard:
     def __repr__(self):
         return f"RummyCard({self.rank}, {self.suit})"
 
-    def __eq__(self, other):
-        if not isinstance(other, RummyCard):
-            return False
-        return self.rank == other.rank and self.suit == other.suit
-
-    def __hash__(self):
-        return hash((self.rank, self.suit))
-
     @property
     def sticker_key(self) -> str:
         """Key used to look up normal sticker in cache."""
@@ -63,7 +55,7 @@ class RummyGame:
         - 5-6 players: 6 cards each
     """
 
-    CARDS_PER_PLAYER = {2: 10, 3: 7, 4: 7, 5: 6, 6: 6}
+    CARDS_PER_PLAYER = {2: 10, 3: 10, 4: 10, 5: 10, 6: 10, 7: 10, 8: 10, 9: 10, 10: 10}
 
     def __init__(self):
         self.players: Dict[int, str] = {}          # user_id -> display_name
@@ -139,10 +131,17 @@ class RummyGame:
 
     def start_game(self) -> bool:
         n = len(self.players)
-        if n < 2 or n > 6:
+        if n < 2 or n > 10:
             return False
 
-        self.deck = self._build_deck()
+        # For 6+ players, use a double deck (104 cards)
+        if n > 5:
+            full_deck = self._build_deck() + self._build_deck()
+            random.shuffle(full_deck)
+            self.deck = full_deck
+        else:
+            self.deck = self._build_deck()
+
         self.player_ids = list(self.players.keys())
         random.shuffle(self.player_ids)
 
@@ -349,11 +348,12 @@ class RummyGame:
     def _find_all_melds(self, cards: List[RummyCard], length: int) -> List[List[RummyCard]]:
         """
         Find all groups of `length` valid melds (runs or sets) within `cards`.
-        A run: same suit, consecutive rank values (ace=1 low only).
-        A set: same rank, different suits.
-        Returns list of valid melds (each meld is a list of cards).
+        Optimization: We use sticker_keys to identify unique card types to avoid redundant 
+        combinations in a Double Deck, then map back to physical Card objects.
         """
+        import itertools
         melds = []
+        seen_meld_keys = set()
         
         # 1. Group by suit to find Runs
         by_suit: Dict[str, List[RummyCard]] = {}
@@ -362,10 +362,19 @@ class RummyGame:
 
         for suit, suit_cards in by_suit.items():
             if len(suit_cards) >= length:
-                for combo in combinations(suit_cards, length):
-                    values = sorted(c.rank_value for c in combo)
+                # To handle double deck efficiently, we only care about unique objects here
+                for combo in itertools.combinations(suit_cards, length):
+                    # Sort by rank value to check for run
+                    sorted_combo = sorted(combo, key=lambda x: x.rank_value)
+                    values = [c.rank_value for c in sorted_combo]
+                    
                     if values == list(range(values[0], values[0] + length)):
-                        melds.append(list(combo))
+                        # Unique check: generate a key based on sticker mapping 
+                        # to avoid showing the same run twice in UI if we have duplicates
+                        meld_key = tuple(c.sticker_key for c in sorted_combo)
+                        if meld_key not in seen_meld_keys:
+                            melds.append(list(combo))
+                            seen_meld_keys.add(meld_key)
                         
         # 2. Group by rank to find Sets
         by_rank: Dict[str, List[RummyCard]] = {}
@@ -374,9 +383,20 @@ class RummyGame:
             
         for rank, rank_cards in by_rank.items():
             if len(rank_cards) >= length:
-                for combo in combinations(rank_cards, length):
-                    # In standard deck, 3 or 4 cards of same rank are naturally different suits.
-                    melds.append(list(combo))
+                for combo in itertools.combinations(rank_cards, length):
+                    # For a valid set, all cards must have the SAME rank (already true)
+                    # and DIFFERENT suits if it's a single deck. 
+                    # In a double deck, we might have two of same suit/rank.
+                    # Rummy rules vary, but usually sets are different suits.
+                    # We'll allow any combo of 3 or 4 of the same rank objects for now.
+                    
+                    # Sort by suit to generate a stable key
+                    sorted_combo = sorted(combo, key=lambda x: x.suit)
+                    meld_key = tuple(c.sticker_key for c in sorted_combo)
+                    
+                    if meld_key not in seen_meld_keys:
+                        melds.append(list(combo))
+                        seen_meld_keys.add(meld_key)
                     
         return melds
 
