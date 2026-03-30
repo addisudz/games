@@ -1451,8 +1451,9 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     ]])
                     await context.bot.send_message(
                         chat_id=chat.id,
-                        text=f"🤔 You have multiple ways to lock a {length}-card set! Click the button below to choose exactly which cards to lock.",
-                        reply_markup=keyboard
+                        text=f"<a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a>, select a way to lock the {length}-card set",
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
                     )
                 return
 
@@ -3453,11 +3454,11 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 for i, meld in enumerate(melds):
                     meld_text = " ".join(f"{str(c.rank).capitalize()}{suits_emoji.get(str(c.suit).lower(), '')}" for c in meld)
                     meld_keys = ",".join(c.sticker_key for c in meld)
-                    results.append(InlineQueryResultArticle(
-                        id=f"rum_lock{target_len}_{user.id}_{i}",
-                        title=f"🔒 Lock {target_len}: {meld_text}",
-                        input_message_content=InputTextMessageContent(f"Lock {target_len}: {meld_keys}")
-                    ))
+                results.append(InlineQueryResultArticle(
+                    id=f"rum_lock{target_len}_{user.id}_{i}",
+                    title=f"L{target_len}: {meld_text}",
+                    input_message_content=InputTextMessageContent(f"Lock {target_len}: {meld_keys}")
+                ))
                 await iq.answer(results, cache_time=0, is_personal=True)
                 return
 
