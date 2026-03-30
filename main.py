@@ -1420,7 +1420,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                         logger.error(f"Error parsing lock command: {e}")
                         return
 
-                # Fallback for generic "Locked 3" text (if player has only 1 option)
+                # Fallback for generic "Locked 3" text (from stickers)
                 melds = session.game.get_valid_melds(user.id, length)
                 if not melds:
                     await context.bot.send_message(chat_id=chat.id, text=f"⚠️ No valid {length}-card set found in your hand!")
@@ -1438,9 +1438,22 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                                 parse_mode="HTML"
                             )
                             await end_game(chat.id, context, session)
+                    else:
+                        await context.bot.send_message(chat_id=chat.id, text=f"⚠️ {msg}")
                     return
                 else:
-                    await context.bot.send_message(chat_id=chat.id, text="⚠️ You have multiple options! Please use the 'Lock' button in your Cards menu to choose which one.")
+                    # Multiple options! Send a button to open the filtered inline query
+                    keyboard = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(
+                            f"Select {length}-Card Set", 
+                            switch_inline_query_current_chat=f"lock{length}"
+                        )
+                    ]])
+                    await context.bot.send_message(
+                        chat_id=chat.id,
+                        text=f"🤔 You have multiple ways to lock a {length}-card set! Click the button below to choose exactly which cards to lock.",
+                        reply_markup=keyboard
+                    )
                 return
 
             if text_lower in ["unlocked 3", "unlocked 4"]:
@@ -3389,7 +3402,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     # 2. Handle Rummy Cards
-    elif query_text.startswith("rum"):
+    elif query_text.startswith("rum") or query_text.startswith("lock"):
         cache = get_sticker_cache()
         asyncio.create_task(ensure_stickers_cached(context))
 
@@ -3428,27 +3441,44 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         if is_turn:
             suits_emoji = {'spades': '♠️', 'clubs': '♣️', 'hearts': '♥️', 'diamonds': '♦️'}
             
-            # Show Lock 3 options
-            melds3 = session.game.get_valid_melds(user.id, 3)
-            for i, meld in enumerate(melds3):
-                meld_text = " ".join(f"{str(c.rank).capitalize()}{suits_emoji.get(str(c.suit).lower(), '')}" for c in meld)
-                meld_keys = ",".join(c.sticker_key for c in meld)
-                results.insert(0, InlineQueryResultArticle(
-                    id=f"rum_lock3_{user.id}_{i}",
-                    title=f"🔒 Lock 3: {meld_text}",
-                    input_message_content=InputTextMessageContent(f"Lock 3: {meld_keys}")
-                ))
+            # If query is exactly "lock3" or "lock4", ONLY show the Article results
+            # Otherwise (default "rum"), show hand + generic lock stickers
+            show_locked_options = query_text.startswith("lock")
+            target_len = 3 if "3" in query_text else (4 if "4" in query_text else 0)
+
+            if show_locked_options:
+                # Filter results to ONLY show valid melds of the target length
+                melds = session.game.get_valid_melds(user.id, target_len)
+                results = [] # clear hand, only show options
+                for i, meld in enumerate(melds):
+                    meld_text = " ".join(f"{str(c.rank).capitalize()}{suits_emoji.get(str(c.suit).lower(), '')}" for c in meld)
+                    meld_keys = ",".join(c.sticker_key for c in meld)
+                    results.append(InlineQueryResultArticle(
+                        id=f"rum_lock{target_len}_{user.id}_{i}",
+                        title=f"🔒 Lock {target_len}: {meld_text}",
+                        input_message_content=InputTextMessageContent(f"Lock {target_len}: {meld_keys}")
+                    ))
+                await iq.answer(results, cache_time=0, is_personal=True)
+                return
+
+            # Default "rum" view logic starts here
+            # Show Lock 3 sticker (generic)
+            if session.game.get_valid_melds(user.id, 3):
+                l3_id = cache.get("action_lock3")
+                if l3_id:
+                    results.insert(0, InlineQueryResultCachedSticker(
+                        id=f"rum_lock3_init_{user.id}", sticker_file_id=l3_id,
+                        input_message_content=InputTextMessageContent("Locked 3")
+                    ))
             
-            # Show Lock 4 options
-            melds4 = session.game.get_valid_melds(user.id, 4)
-            for i, meld in enumerate(melds4):
-                meld_text = " ".join(f"{str(c.rank).capitalize()}{suits_emoji.get(str(c.suit).lower(), '')}" for c in meld)
-                meld_keys = ",".join(c.sticker_key for c in meld)
-                results.insert(0, InlineQueryResultArticle(
-                    id=f"rum_lock4_{user.id}_{i}",
-                    title=f"🔒 Lock 4: {meld_text}",
-                    input_message_content=InputTextMessageContent(f"Lock 4: {meld_keys}")
-                ))
+            # Show Lock 4 sticker (generic)
+            if session.game.get_valid_melds(user.id, 4):
+                l4_id = cache.get("action_lock4")
+                if l4_id:
+                    results.insert(0, InlineQueryResultCachedSticker(
+                        id=f"rum_lock4_init_{user.id}", sticker_file_id=l4_id,
+                        input_message_content=InputTextMessageContent("Locked 4")
+                    ))
 
             # Show Unlock options
             if any(len(m) == 3 for m in session.game.locked_melds.get(user.id, [])):
@@ -4366,54 +4396,6 @@ async def testcards_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                         logger.error(f"Error sending {key}: {e}")
 
     await update.message.reply_text("Done.")
-
-async def handle_rumlock_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle selections for playing Rummy Lock interactions when multiple melds exist."""
-    query = update.callback_query
-    
-    parts = query.data.split(':')
-    if len(parts) != 4:
-        await query.answer()
-        return
-        
-    _, user_id_str, length_str, idx_str = parts
-    user_id = int(user_id_str)
-    length = int(length_str)
-    idx = int(idx_str)
-
-    if query.from_user.id != user_id:
-        await query.answer("This is not your hand!", show_alert=True)
-        return
-        
-    await query.answer()
-
-    chat = update.effective_chat
-    session = game_manager.get_game(chat.id)
-    if not session or not session.game or session.game_code != "17":
-        await query.edit_message_text("Game not found or ended.")
-        return
-
-    melds = session.game.get_valid_melds(user_id, length)
-    if idx < 0 or idx >= len(melds):
-        await query.edit_message_text("That option is no longer valid.")
-        return
-
-    selected_meld = melds[idx]
-    keys = [c.sticker_key for c in selected_meld]
-    success, msg, won = session.game.lock_meld(user_id, keys)
-
-    if success:
-        await query.edit_message_text(f"🔒 <a href=\"tg://user?id={user_id}\">{session.game.players[user_id]}</a> locked a {length}-card set.", parse_mode="HTML")
-        if won:
-            await context.bot.send_message(
-                chat_id=chat.id,
-                text=f"🏆 <b>{session.game.players[user_id]} wins Rummy!</b> 🎉\n\n"
-                     f"They formed two 3-card runs and one 4-card run!",
-                parse_mode="HTML"
-            )
-            await end_game(chat.id, context, session)
-    else:
-        await query.edit_message_text(f"⚠️ {msg}")
 
 def main() -> None:
     """Start the bot."""
