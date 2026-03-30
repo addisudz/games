@@ -1343,67 +1343,122 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 else:
                     await start_song_round(chat.id, context)
 
-        # Handle Crazy 8 Game
+        # Handle Rummy Game (text actions from inline queries)
         elif session.game_code == "17":
-            # Detect "Draw a card" message from inline query result
-            if message.text.lower() == "draw a card":
-                success, msg_text = session.game.draw_card_for_player(user.id)
+            text_lower = message.text.strip().lower()
+            
+            if text_lower == "draw":
+                if user.id != session.game.current_player_id:
+                    await context.bot.send_message(chat_id=chat.id, text="❌ Not your turn!")
+                    return
+                success, msg, card = session.game.draw_from_deck(user.id)
                 if success:
-                    # Send the drawn card as a sticker in private
-                    drawn_card = session.game.hands[user.id][-1]
-                    cache = get_sticker_cache()
-                    sticker_id = cache.get(f"{drawn_card.rank}_of_{drawn_card.suit}")
-                    
-                    try:
-                        if sticker_id:
-                            await context.bot.send_sticker(chat_id=user.id, sticker=sticker_id)
-                    except Exception:
-                        # User hasn't started bot in private
-                        pass
-                        
-                    await context.bot.send_message(chat_id=chat.id, text=msg_text, parse_mode="HTML")
-                    await send_c8_buttons(chat.id, context, session)
+                    keyboard = InlineKeyboardMarkup([[
+                        InlineKeyboardButton("Discard", switch_inline_query_current_chat="rum")
+                    ]])
+                    await context.bot.send_message(
+                        chat_id=chat.id,
+                        text=f"📥 <a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> drew a card from the deck.",
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
                 else:
-                    await message.reply_text(f"⚠️ {msg_text}", parse_mode="HTML")
+                    await message.reply_text(f"⚠️ {msg}")
                 return
 
-            # Parse play
-            success, msg_text, filename = session.game.play_card(user.id, message.text)
-            if success:
-                # Send the card image if they played one
-                if filename:
-                    card_path = os.path.join(os.path.dirname(__file__), "cards-png", filename)
+            if text_lower == "grab":
+                if user.id != session.game.current_player_id:
+                    await context.bot.send_message(chat_id=chat.id, text="❌ Not your turn!")
+                    return
+                success, msg, card = session.game.grab_from_discard(user.id)
+                if success:
+                    suits_emoji = {'spades': '♠️', 'clubs': '♣️', 'hearts': '♥️', 'diamonds': '♦️'}
+                    r_str = str(card.rank).capitalize()
+                    s_emoji = suits_emoji.get(str(card.suit).lower(), card.suit)
+                    card_display = f"{r_str} {s_emoji}"
+                    
+                    keyboard = InlineKeyboardMarkup([[
+                        InlineKeyboardButton("Discard", switch_inline_query_current_chat="rum")
+                    ]])
+                    
+                    await context.bot.send_message(
+                        chat_id=chat.id,
+                        text=f"<a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> grabbed <b>{card_display}</b> from the discard pile.",
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
+                else:
+                    await message.reply_text(f"⚠️ {msg}")
+                return
+                
+            if text_lower.startswith("lock"):
+                # Handle specific lock: "Lock 3: rank_of_suit,rank_of_suit,..."
+                length = 3 if "3" in text_lower else 4
+                if ":" in text_lower:
                     try:
-                        with open(card_path, 'rb') as f:
-                            await context.bot.send_photo(
-                                chat_id=chat.id,
-                                photo=f,
-                                caption=msg_text,
+                        cards_part = message.text.split(":", 1)[1].strip()
+                        keys = [k.strip() for k in cards_part.split(",")]
+                        success, msg, won = session.game.lock_meld(user.id, keys)
+                        if success:
+                            await context.bot.send_message(
+                                chat_id=chat.id, 
+                                text=f"🔒 <a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> locked a {length}-card set.", 
                                 parse_mode="HTML"
                             )
+                            if won:
+                                await context.bot.send_message(
+                                    chat_id=chat.id,
+                                    text=f"🏆 <b>{session.game.players[user.id]} wins Rummy!</b> 🎉\n\n"
+                                         f"They formed two 3-card runs and one 4-card run!",
+                                    parse_mode="HTML"
+                                )
+                                await end_game(chat.id, context, session)
+                        else:
+                            await context.bot.send_message(chat_id=chat.id, text=f"⚠️ {msg}")
+                        return
                     except Exception as e:
-                        logger.error(f"Error sending card image: {e}")
-                        await message.reply_text(msg_text, parse_mode="HTML")
+                        logger.error(f"Error parsing lock command: {e}")
+                        return
+
+                # Fallback for generic "Locked 3" text (if player has only 1 option)
+                melds = session.game.get_valid_melds(user.id, length)
+                if not melds:
+                    await context.bot.send_message(chat_id=chat.id, text=f"⚠️ No valid {length}-card set found in your hand!")
+                    return
+                if len(melds) == 1:
+                    keys = [c.sticker_key for c in melds[0]]
+                    success, msg, won = session.game.lock_meld(user.id, keys)
+                    if success:
+                        await context.bot.send_message(chat_id=chat.id, text=f"🔒 <a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> locked a {length}-card set.", parse_mode="HTML")
+                        if won:
+                            await context.bot.send_message(
+                                chat_id=chat.id,
+                                text=f"🏆 <b>{session.game.players[user.id]} wins Rummy!</b> 🎉\n\n"
+                                     f"They formed two 3-card runs and one 4-card run!",
+                                parse_mode="HTML"
+                            )
+                            await end_game(chat.id, context, session)
+                    return
                 else:
-                    await message.reply_text(msg_text, parse_mode="HTML")
+                    await context.bot.send_message(chat_id=chat.id, text="⚠️ You have multiple options! Please use the 'Lock' button in your Cards menu to choose which one.")
+                return
+
+            if text_lower in ["unlocked 3", "unlocked 4"]:
+                length = 3 if "3" in text_lower else 4
+                success, msg = session.game.unlock_meld(user.id, length)
+                if success:
+                    await context.bot.send_message(chat_id=chat.id, text=f"🔓 <a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> unlocked a {length}-card set.", parse_mode="HTML")
+                else:
+                    await context.bot.send_message(chat_id=chat.id, text=f"⚠️ {msg}")
+                return
                 
-                # Check win
-                if session.game.game_over:
-                    # They won
-                    await end_game(chat.id, context, session)
-                else:
-                    # Provide buttons for the next player
-                    await send_c8_buttons(chat.id, context, session)
-            else:
-                # Only reply if it was an active player trying to play an invalid card (otherwise ignore chat)
-                if user.id == session.game.current_player_id:
-                     # Attempt to parse
-                     if session.game.parse_card_from_text(message.text):
-                         # If it was a card format but invalid, show error
-                         await message.reply_text(f"⚠️ {msg_text}", parse_mode="HTML")
-
-
-
+            if text_lower == "info":
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=session.game.get_player_order_text(),
+                    parse_mode="HTML"
+                )
+                return
 async def start_round(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Start a new round of the game."""
     session = game_manager.get_game(chat_id)
@@ -3065,8 +3120,8 @@ async def ensure_stickers_cached(context: ContextTypes.DEFAULT_TYPE) -> Dict[str
             
         try:
             sticker_set = await context.bot.get_sticker_set("DeckofCardsTraditional")
-            # The sticker pack starts with 2s and ends with Aces
-            ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'jack', 'queen', 'king', 'ace']
+            # The sticker pack order places Ace after 10, then Jack, Queen, King
+            ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'ace', 'jack', 'queen', 'king']
             # Suits order from emoji inspection: Clubs, Diamonds, Hearts, Spades
             suits = ['clubs', 'diamonds', 'hearts', 'spades']
             
@@ -3097,6 +3152,14 @@ async def ensure_stickers_cached(context: ContextTypes.DEFAULT_TYPE) -> Dict[str
                     cache["action_grab"] = sticker.file_id  # 🫳
                 elif i == 109:
                     cache["action_pass"] = sticker.file_id  # ➡️
+                elif i == 110:
+                    cache["action_lock3"] = sticker.file_id
+                elif i == 111:
+                    cache["action_unlock3"] = sticker.file_id
+                elif i == 112:
+                    cache["action_lock4"] = sticker.file_id
+                elif i == 113:
+                    cache["action_unlock4"] = sticker.file_id
 
             with open(cache_path, 'w') as f:
                 json.dump(cache, f, indent=2)
@@ -3362,6 +3425,47 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     )
                 )
 
+        if is_turn:
+            suits_emoji = {'spades': '♠️', 'clubs': '♣️', 'hearts': '♥️', 'diamonds': '♦️'}
+            
+            # Show Lock 3 options
+            melds3 = session.game.get_valid_melds(user.id, 3)
+            for i, meld in enumerate(melds3):
+                meld_text = " ".join(f"{str(c.rank).capitalize()}{suits_emoji.get(str(c.suit).lower(), '')}" for c in meld)
+                meld_keys = ",".join(c.sticker_key for c in meld)
+                results.insert(0, InlineQueryResultArticle(
+                    id=f"rum_lock3_{user.id}_{i}",
+                    title=f"🔒 Lock 3: {meld_text}",
+                    input_message_content=InputTextMessageContent(f"Lock 3: {meld_keys}")
+                ))
+            
+            # Show Lock 4 options
+            melds4 = session.game.get_valid_melds(user.id, 4)
+            for i, meld in enumerate(melds4):
+                meld_text = " ".join(f"{str(c.rank).capitalize()}{suits_emoji.get(str(c.suit).lower(), '')}" for c in meld)
+                meld_keys = ",".join(c.sticker_key for c in meld)
+                results.insert(0, InlineQueryResultArticle(
+                    id=f"rum_lock4_{user.id}_{i}",
+                    title=f"🔒 Lock 4: {meld_text}",
+                    input_message_content=InputTextMessageContent(f"Lock 4: {meld_keys}")
+                ))
+
+            # Show Unlock options
+            if any(len(m) == 3 for m in session.game.locked_melds.get(user.id, [])):
+                ul3_id = cache.get("action_unlock3")
+                if ul3_id:
+                    results.insert(0, InlineQueryResultCachedSticker(
+                        id=f"rum_unlock3_{user.id}", sticker_file_id=ul3_id,
+                        input_message_content=InputTextMessageContent("Unlocked 3")
+                    ))
+            if any(len(m) == 4 for m in session.game.locked_melds.get(user.id, [])):
+                ul4_id = cache.get("action_unlock4")
+                if ul4_id:
+                    results.insert(0, InlineQueryResultCachedSticker(
+                        id=f"rum_unlock4_{user.id}", sticker_file_id=ul4_id,
+                        input_message_content=InputTextMessageContent("Unlocked 4")
+                    ))
+
         if is_turn and session.game.player_phase.get(user.id) == 'draw':
             grab_file_id = cache.get("action_grab")
             draw_file_id = cache.get("action_draw")
@@ -3369,12 +3473,14 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             if grab_file_id:
                 results.insert(0, InlineQueryResultCachedSticker(
                     id=f"rum_grab_{user.id}",
-                    sticker_file_id=grab_file_id
+                    sticker_file_id=grab_file_id,
+                    input_message_content=InputTextMessageContent("Grab")
                 ))
             if draw_file_id:
                 results.insert(0, InlineQueryResultCachedSticker(
                     id=f"rum_draw_{user.id}",
-                    sticker_file_id=draw_file_id
+                    sticker_file_id=draw_file_id,
+                    input_message_content=InputTextMessageContent("Draw")
                 ))
 
         await iq.answer(results, cache_time=0, is_personal=True)
@@ -3887,18 +3993,24 @@ async def send_rummy_turn_message(chat_id: int, context: ContextTypes.DEFAULT_TY
 
     # Top discard info
     top = game.get_top_discard()
-    discard_text = f"Top discard: <b>{str(top)}</b>" if top else "Discard pile is empty."
+    if top:
+        suits_emoji = {'spades': '♠️', 'clubs': '♣️', 'hearts': '♥️', 'diamonds': '♦️'}
+        r_str = str(top.rank).capitalize()
+        s_emoji = suits_emoji.get(str(top.suit).lower(), top.suit)
+        discard_text = f"Last card: <b>{r_str} {s_emoji}</b>"
+    else:
+        discard_text = "Discard pile is empty."
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🃏 Cards", switch_inline_query_current_chat="rum")]
+        [InlineKeyboardButton("Cards", switch_inline_query_current_chat="rum")]
     ])
 
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
-            f"👉 It's <a href=\"tg://user?id={cp}\">{player_name}</a>'s turn!\n"
+            f"Next player: <a href=\"tg://user?id={cp}\">{player_name}</a>\n"
             f"{discard_text}\n\n"
-            f"<i>Draw/Grab first, then discard a card.</i>"
+            f"Draw or Grab a card"
         ),
         reply_markup=keyboard,
         parse_mode="HTML"
@@ -3925,48 +4037,67 @@ async def handle_rummy_sticker(update, context: ContextTypes.DEFAULT_TYPE, sessi
 
     if draw_sticker_id and sticker_id == draw_sticker_id:
         # Draw from deck
+        try:
+            await message.delete()
+        except:
+            pass
+        
         if user.id != game.current_player_id:
-            await message.reply_text("❌ Not your turn!")
+            await context.bot.send_message(chat_id=chat.id, text="❌ Not your turn!")
             return
         success, msg, card = game.draw_from_deck(user.id)
         if success:
-            # Send drawn card privately via inline alert is not possible; send in group
-            card_sticker = cache.get(card.sticker_key) if card else None
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("Discard", switch_inline_query_current_chat="rum")
+            ]])
             await context.bot.send_message(
                 chat_id=chat.id,
-                text=f"📥 <a href=\"tg://user?id={user.id}\">{game.players[user.id]}</a> drew a card from the deck.\n"
-                     f"<i>Now discard a card to end your turn.</i>",
+                text=f"📥 <a href=\"tg://user?id={user.id}\">{game.players[user.id]}</a> drew a card from the deck.",
+                reply_markup=keyboard,
                 parse_mode="HTML"
             )
-            if card_sticker:
-                # Send only to user? We can't DM easily; suppress card reveal in group
-                pass
         else:
-            await message.reply_text(f"⚠️ {msg}")
+            await context.bot.send_message(chat_id=chat.id, text=f"⚠️ {msg}")
         return
 
     if grab_sticker_id and sticker_id == grab_sticker_id:
         # Grab top discard
+        try:
+            await message.delete()
+        except:
+            pass
+            
         if user.id != game.current_player_id:
-            await message.reply_text("❌ Not your turn!")
+            await context.bot.send_message(chat_id=chat.id, text="❌ Not your turn!")
             return
         success, msg, card = game.grab_from_discard(user.id)
         if success:
+            suits_emoji = {'spades': '♠️', 'clubs': '♣️', 'hearts': '♥️', 'diamonds': '♦️'}
+            r_str = str(card.rank).capitalize()
+            s_emoji = suits_emoji.get(str(card.suit).lower(), card.suit)
+            card_display = f"{r_str} {s_emoji}"
+            
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("Discard", switch_inline_query_current_chat="rum")
+            ]])
+            
             grabbed_sticker = cache.get(card.sticker_key) if card else None
             await context.bot.send_message(
                 chat_id=chat.id,
-                text=f"🤏 <a href=\"tg://user?id={user.id}\">{game.players[user.id]}</a> grabbed <b>{str(card)}</b> from the discard pile.\n"
-                     f"<i>Now discard a card to end your turn.</i>",
+                text=f"<a href=\"tg://user?id={user.id}\">{game.players[user.id]}</a> grabbed <b>{card_display}</b> from the discard pile.",
+                reply_markup=keyboard,
                 parse_mode="HTML"
             )
-            if grabbed_sticker:
-                await context.bot.send_sticker(chat_id=chat.id, sticker=grabbed_sticker)
         else:
-            await message.reply_text(f"⚠️ {msg}")
+            await context.bot.send_message(chat_id=chat.id, text=f"⚠️ {msg}")
         return
 
     if info_sticker_id and sticker_id == info_sticker_id:
         # Info: show order + card counts
+        try:
+            await message.delete()
+        except:
+            pass
         if user.id not in game.players:
             return
         await context.bot.send_message(
@@ -4006,18 +4137,7 @@ async def handle_rummy_sticker(update, context: ContextTypes.DEFAULT_TYPE, sessi
         await message.reply_text(f"⚠️ {msg}")
         return
 
-    # Show discarded card sticker to group
-    disc_sticker = cache.get(discarded_card.sticker_key) if discarded_card else None
-    try:
-        if disc_sticker:
-            await context.bot.send_sticker(chat_id=chat.id, sticker=disc_sticker)
-        await context.bot.send_message(
-            chat_id=chat.id,
-            text=f"♻️ <a href=\"tg://user?id={user.id}\">{game.players[user.id]}</a> discarded <b>{str(discarded_card)}</b>.",
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        logger.error(f"Error sending discard sticker: {e}")
+    # No separate discard message needed, as the next turn message logs the last card.
 
     if won:
         await context.bot.send_message(
@@ -4215,6 +4335,86 @@ def _build_game_filter_message():
 
 
 
+async def testcards_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Debug command to print all normal playing cards."""
+    cache = get_sticker_cache()
+    if not cache:
+        await update.message.reply_text("Cache is empty. Play a game first.")
+        return
+        
+    await update.message.reply_text("Sending mapping tests. Please wait...")
+    ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'ace', 'jack', 'queen', 'king']
+    suits = ['clubs', 'diamonds', 'hearts', 'spades']
+    
+    for suit in suits:
+        for rank in ranks:
+            key = f"{rank}_of_{suit}"
+            sticker_id = cache.get(key)
+            if sticker_id:
+                try:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=key)
+                    await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=sticker_id)
+                    await asyncio.sleep(1.0)
+                except Exception as e:
+                    if "Flood control" in str(e) or hasattr(e, 'retry_after'):
+                        wait_time = getattr(e, 'retry_after', 30)
+                        logger.error(f"Flood limit! Pausing {key} for {wait_time}s...")
+                        await asyncio.sleep(wait_time + 1)
+                        await context.bot.send_message(chat_id=update.effective_chat.id, text=key)
+                        await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=sticker_id)
+                    else:
+                        logger.error(f"Error sending {key}: {e}")
+
+    await update.message.reply_text("Done.")
+
+async def handle_rumlock_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle selections for playing Rummy Lock interactions when multiple melds exist."""
+    query = update.callback_query
+    
+    parts = query.data.split(':')
+    if len(parts) != 4:
+        await query.answer()
+        return
+        
+    _, user_id_str, length_str, idx_str = parts
+    user_id = int(user_id_str)
+    length = int(length_str)
+    idx = int(idx_str)
+
+    if query.from_user.id != user_id:
+        await query.answer("This is not your hand!", show_alert=True)
+        return
+        
+    await query.answer()
+
+    chat = update.effective_chat
+    session = game_manager.get_game(chat.id)
+    if not session or not session.game or session.game_code != "17":
+        await query.edit_message_text("Game not found or ended.")
+        return
+
+    melds = session.game.get_valid_melds(user_id, length)
+    if idx < 0 or idx >= len(melds):
+        await query.edit_message_text("That option is no longer valid.")
+        return
+
+    selected_meld = melds[idx]
+    keys = [c.sticker_key for c in selected_meld]
+    success, msg, won = session.game.lock_meld(user_id, keys)
+
+    if success:
+        await query.edit_message_text(f"🔒 <a href=\"tg://user?id={user_id}\">{session.game.players[user_id]}</a> locked a {length}-card set.", parse_mode="HTML")
+        if won:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"🏆 <b>{session.game.players[user_id]} wins Rummy!</b> 🎉\n\n"
+                     f"They formed two 3-card runs and one 4-card run!",
+                parse_mode="HTML"
+            )
+            await end_game(chat.id, context, session)
+    else:
+        await query.edit_message_text(f"⚠️ {msg}")
+
 def main() -> None:
     """Start the bot."""
     # Get bot token from environment
@@ -4232,6 +4432,7 @@ def main() -> None:
     # Add handlers
     application.add_handler(ChatMemberHandler(my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("testcards", testcards_command))
     application.add_handler(CommandHandler("join", join_command))
     application.add_handler(CommandHandler("leave", leave_command))
     application.add_handler(CommandHandler("quit", quit_command))
