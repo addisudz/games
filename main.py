@@ -23,7 +23,7 @@ from telegram.ext import (
     ContextTypes,
 )
 from telegram.constants import ChatType, ChatMemberStatus, ParseMode
-from telegram import InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultCachedPhoto, InlineQueryResultCachedSticker
+from telegram import InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultCachedPhoto, InlineQueryResultCachedSticker, InlineQueryResultsButton
 from telegram.error import NetworkError, Forbidden, TimedOut, TelegramError
 
 from datetime import datetime, timedelta
@@ -3416,7 +3416,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if not session or not session.game:
             await iq.answer([], cache_time=1, is_personal=True,
-                            switch_pm_text="No active Rummy game", switch_pm_parameter="help")
+                            button=InlineQueryResultsButton(text="No active Rummy game", start_parameter="help"))
             return
 
         is_turn = (user.id == session.game.current_player_id)
