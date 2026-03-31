@@ -589,6 +589,10 @@ async def start_game_after_delay(chat_id: int, context: ContextTypes.DEFAULT_TYP
     
     # Start the game
     if session.start_game():
+        # Initialize turn timer and skip counts
+        session.reset_turn_timer()
+        session.skip_counts = {}
+        
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"🎮 <b>Game Starting!</b>\n\n"
@@ -907,6 +911,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                              f"👉 Next up: <a href=\"tg://user?id={next_player_id}\">{next_player_name}</a>",
                         parse_mode="HTML"
                     )
+                    session.reset_turn_timer()
         
         # Handle Guess the Imposter Game
         elif session.game_code == "3":
@@ -918,6 +923,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Allow clues from current player
             if session.game.submit_clue(user.id, message.text):
                  # Clue accepted
+                 session.reset_turn_timer()
                  # Check if we should notify
                  pass
                  
@@ -1252,6 +1258,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             else:
                 # Guesser logic
                 is_action, result = session.game.check_guess_or_question(user_id, text)
+                if is_action:
+                    session.reset_turn_timer()
                 
                 if result == 'QUESTION_COUNTED':
                     # React to the question
@@ -3312,6 +3320,7 @@ async def process_hear_me_out_photo(update: Update, context: ContextTypes.DEFAUL
                     f"👉 It's <a href=\"tg://user?id={current_player_id}\">{current_player_name}</a>'s turn! Send a picture.",
             parse_mode="HTML"
         )
+        session.reset_turn_timer()
 
 async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Detect meme submissions by watching for photos in WDYM games."""
@@ -4087,6 +4096,7 @@ async def handle_rummy_sticker(update, context: ContextTypes.DEFAULT_TYPE, sessi
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
+            session.reset_turn_timer()
         else:
             await context.bot.send_message(chat_id=chat.id, text=f"⚠️ {msg}")
         return
@@ -4119,6 +4129,7 @@ async def handle_rummy_sticker(update, context: ContextTypes.DEFAULT_TYPE, sessi
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
+            session.reset_turn_timer()
         else:
             await context.bot.send_message(chat_id=chat.id, text=f"⚠️ {msg}")
         return
@@ -4160,7 +4171,7 @@ async def handle_rummy_sticker(update, context: ContextTypes.DEFAULT_TYPE, sessi
 
     # Must draw first
     if game.player_phase.get(user.id) == 'draw':
-        await message.reply_text("⚠️ You must draw or grab a card first!")
+        await message.reply_text("You must draw or grab a card first!")
         return
 
     # Attempt discard
@@ -4180,6 +4191,7 @@ async def handle_rummy_sticker(update, context: ContextTypes.DEFAULT_TYPE, sessi
         )
         await end_game(chat.id, context, session)
     else:
+        session.reset_turn_timer()
         await send_rummy_turn_message(chat.id, context, session)
 
 
@@ -4399,6 +4411,99 @@ async def testcards_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     await update.message.reply_text("Done.")
 
+async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /skip command to skip the current player's turn after 50 seconds."""
+    chat = update.effective_chat
+    session = game_manager.get_game(chat.id)
+    
+    if not session or session.state != GameState.IN_PROGRESS:
+        await update.message.reply_text("No active game in progress.")
+        return
+
+    # Check if the game is turn-based and has a current player
+    if not hasattr(session.game, 'get_current_player_id'):
+        await update.message.reply_text("This game does not support skipping turns.")
+        return
+
+    current_player_id = session.game.get_current_player_id()
+    if not current_player_id:
+        await update.message.reply_text("Could not identify the current player. oops")
+        return
+
+    # Check time elapsed (50 seconds)
+    if not session.turn_start_time:
+        session.reset_turn_timer()
+        await update.message.reply_text("Turn timer just started. Please wait 50 seconds. jesus")
+        return
+
+    elapsed = (datetime.now() - session.turn_start_time).total_seconds()
+    if elapsed < 50:
+        remaining = int(50 - elapsed)
+        await update.message.reply_text(f"Please wait {remaining} more seconds before skipping.")
+        return
+
+    # Process skip
+    player_name = session.game.players.get(current_player_id, "Player")
+    skip_count = session.skip_counts.get(current_player_id, 0) + 1
+    session.skip_counts[current_player_id] = skip_count
+
+    if skip_count >= 3:
+        # Kick player
+        await update.message.reply_text(
+            f"🚫 <b><a href=\"tg://user?id={current_player_id}\">{player_name}</a> has been skipped 3 times and is kicked from the game!</b>",
+            parse_mode="HTML"
+        )
+        session.remove_player(current_player_id)
+        
+        # Check if game should end
+        if len(session.players) < 2:
+            await update.message.reply_text("Not enough players left. Game ended. You're all alone. That must suck")
+            await end_game(chat.id, context, session)
+            return
+    else:
+        # Just skip
+        await update.message.reply_text(
+            f"⏭ <b><a href=\"tg://user?id={current_player_id}\">{player_name}</a> was skipped!</b> ({skip_count}/3 skips)",
+            parse_mode="HTML"
+        )
+    
+    # Advance turn logic
+    if hasattr(session.game, 'skip_turn'):
+        session.game.skip_turn()
+    
+    # Reset timer for next player
+    session.reset_turn_timer()
+    
+    # Notify next player
+    if session.game_code == "17": # Rummy
+        await send_rummy_turn_message(chat.id, context, session)
+    elif session.game_code == "2": # Story Builder
+        cp_id = session.game.get_current_player_id()
+        cp_name = session.game.get_current_player_name()
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"👉 It's <a href=\"tg://user?id={cp_id}\">{cp_name}</a>'s turn!",
+            parse_mode="HTML"
+        )
+    elif session.game_code == "12": # Meme
+        # WDYM is slightly different, skip might need more logic
+        pass
+    elif session.game_code == "21": # Hear Me Out
+        cp_id = session.game.get_current_player_id()
+        cp_name = session.game.get_current_player_name()
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"👉 It's <a href=\"tg://user?id={cp_id}\">{cp_name}</a>'s turn! Send a picture.",
+            parse_mode="HTML"
+        )
+    elif session.game_code == "15": # 20 Questions
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"🛑 <b>Round skipped!</b> Starting a new round...",
+            parse_mode="HTML"
+        )
+        await start_20questions_round(chat.id, context)
+
 async def refresh_cache_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manual trigger to refresh the sticker and meme cache."""
     chat = update.effective_chat
@@ -4453,6 +4558,7 @@ def main() -> None:
     application.add_handler(CommandHandler("leaderboard", leaderboard_command))
     application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CommandHandler("refresh_cache", refresh_cache_command))
+    application.add_handler(CommandHandler("skip", skip_command))
     application.add_handler(CallbackQueryHandler(handle_game_menu_callback, pattern="^game_"))
     application.add_handler(CallbackQueryHandler(handle_settings_callback, pattern="^set_"))
     application.add_handler(CallbackQueryHandler(handle_leaderboard_callback, pattern="^lb_"))

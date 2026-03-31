@@ -57,6 +57,10 @@ class GameSession:
         self.quit_votes: Set[int] = set()  # user_ids who voted to quit
         self.quit_vote_message_id: Optional[int] = None
         
+        # New fields for turn tracking and skips
+        self.turn_start_time: Optional[datetime] = None
+        self.skip_counts: Dict[int, int] = {}  # user_id -> number of times skipped
+        
     def set_game_code(self, code: str, used_images: Optional[List[str]] = None) -> bool:
         """Set the game code and initialize the appropriate game.
         
@@ -245,6 +249,11 @@ class GameSession:
     def end_game(self) -> None:
         """Mark the game as ended."""
         self.state = GameState.ENDED
+        self.turn_start_time = None
+
+    def reset_turn_timer(self) -> None:
+        """Update the turn start time to the current time."""
+        self.turn_start_time = datetime.now()
 
 
 class GameManager:

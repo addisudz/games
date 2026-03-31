@@ -160,3 +160,11 @@ class TwentyQuestionsGame:
         if max_score == 0:
             return []
         return [uid for uid, score in self.scores.items() if score == max_score]
+
+    def get_current_player_id(self) -> Optional[int]:
+        """In 20 Questions, the Host is the 'current player' whose progress we track."""
+        return self.host_id if self.round_in_progress else None
+
+    def skip_turn(self) -> None:
+        """Skip the current host's turn by ending the round."""
+        self.round_in_progress = False

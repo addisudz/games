@@ -117,6 +117,11 @@ class StoryBuilderGame:
         
         return True
         
+    def skip_turn(self) -> None:
+        """Skip the current player's turn."""
+        if self.players:
+            self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
+        
     def get_full_story(self) -> str:
         """Get the full story text."""
         return " ".join(self.story_segments)

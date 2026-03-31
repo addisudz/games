@@ -100,6 +100,11 @@ class GuessTheImposterGame:
         self.current_turn_index += 1
         return True
 
+    def skip_turn(self) -> None:
+        """Skip the current player's turn."""
+        if self.turn_order:
+            self.current_turn_index += 1
+
     def are_clues_finished(self) -> bool:
         """Check if all players have submitted clues."""
         return self.current_turn_index >= len(self.turn_order)

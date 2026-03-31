@@ -238,6 +238,10 @@ class RummyGame:
         self._advance_turn()
         return True, f"{self.players[user_id]} discarded {str(card)}.", card, False
 
+    def skip_turn(self) -> None:
+        """Skip the current player's turn."""
+        self._advance_turn()
+
     def _find_card_in_hand(self, user_id: int, card_key: str) -> Optional[RummyCard]:
         """Find a card in player's hand by its sticker key '{rank}_of_{suit}'."""
         # card_key may be e.g. "ace_of_spades" or "ace of spades"

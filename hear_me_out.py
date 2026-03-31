@@ -117,6 +117,12 @@ class HearMeOutGame:
             
         return composite_path
 
+    def skip_turn(self) -> None:
+        """Skip the current player's turn."""
+        self.current_turn += 1
+        if self.current_turn > self.turns_limit:
+            self.is_active = False
+
     def _find_coeffs(self, pa: List[Tuple[float, float]], pb: List[Tuple[float, float]]) -> List[float]:
         """
         Find coefficients for perspective transformation.
