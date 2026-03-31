@@ -3123,13 +3123,13 @@ def get_sticker_cache() -> Dict[str, str]:
     return {}
 
 
-async def ensure_stickers_cached(context: ContextTypes.DEFAULT_TYPE) -> Dict[str, str]:
-    """Fetch and cache sticker IDs for Crazy 8."""
+async def ensure_stickers_cached(context: ContextTypes.DEFAULT_TYPE, force: bool = False) -> Dict[str, str]:
+    """Fetch and cache sticker IDs for Rummy and Crazy 8."""
     async with card_cache_lock:
         cache_path = os.path.join(os.path.dirname(__file__), "sticker_cache.json")
         cache = get_sticker_cache()
         
-        if cache:
+        if cache and not force:
             return cache # Assume cache is complete if exists
             
         try:
@@ -4147,6 +4147,7 @@ async def handle_rummy_sticker(update, context: ContextTypes.DEFAULT_TYPE, sessi
             break
 
     if not card_key:
+        logger.warning(f"Unrecognized Rummy sticker: {sticker_id} from user {user.id}")
         return  # Unknown sticker — ignore
 
     if user.id not in game.players:
@@ -4398,6 +4399,32 @@ async def testcards_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     await update.message.reply_text("Done.")
 
+async def refresh_cache_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manual trigger to refresh the sticker and meme cache."""
+    chat = update.effective_chat
+    user = update.effective_user
+    
+    # Check if user is mod
+    if not await is_user_mod(chat, user.id, context):
+        await update.message.reply_text("❌ Only moderators can refresh the cache.")
+        return
+        
+    await update.message.reply_text("🔄 Refreshing sticker and meme cache. Please wait...")
+    
+    try:
+        # Clear local cache first
+        cache_path = os.path.join(os.path.dirname(__file__), "sticker_cache.json")
+        if os.path.exists(cache_path):
+            os.remove(cache_path)
+            
+        await ensure_stickers_cached(context, force=True)
+        await ensure_memes_cached(context)
+        
+        await update.message.reply_text("✅ Cache refreshed successfully!")
+    except Exception as e:
+        logger.error(f"Error refreshing cache: {e}")
+        await update.message.reply_text(f"⚠️ Error refreshing cache: {e}")
+
 def main() -> None:
     """Start the bot."""
     # Get bot token from environment
@@ -4425,6 +4452,7 @@ def main() -> None:
     application.add_handler(CommandHandler("extend", extend_command))
     application.add_handler(CommandHandler("leaderboard", leaderboard_command))
     application.add_handler(CommandHandler("settings", settings_command))
+    application.add_handler(CommandHandler("refresh_cache", refresh_cache_command))
     application.add_handler(CallbackQueryHandler(handle_game_menu_callback, pattern="^game_"))
     application.add_handler(CallbackQueryHandler(handle_settings_callback, pattern="^set_"))
     application.add_handler(CallbackQueryHandler(handle_leaderboard_callback, pattern="^lb_"))
