@@ -3617,11 +3617,26 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
                 break
         
         if not session or not session.game:
+            # Re-attempt finding for any Rummy game even if code check is weird
+            for s in game_manager.active_games.values():
+                if user.id in s.players:
+                    session = s
+                    break
+        
+        if not session:
+            await context.bot.send_message(
+                chat_id=user.id, 
+                text="⚠️ Rummy session not found. Please try again or re-open the hand."
+            )
             return
             
         # Re-get the melds specifically to pick the one by index
         melds = session.game.get_valid_melds(user.id, length)
         if meld_idx >= len(melds):
+            await context.bot.send_message(
+                chat_id=session.chat_id, 
+                text=f"⚠️ {user.first_name}, the cards in your hand changed before you picked! Please try again."
+            )
             return
             
         meld = melds[meld_idx]
@@ -3632,14 +3647,14 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
             chat_id = session.chat_id
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"🔒 <a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> locked a {length}-card set.",
+                text=f"🔒 <a href=\"tg://user?id={user.id}\">{session.players[user.id]}</a> locked a {length}-card set.",
                 parse_mode="HTML"
             )
             
             if won:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"🏆 <b>{session.game.players[user.id]} wins Rummy!</b> 🎉\n\n"
+                    text=f"🏆 <b>{session.players[user.id]} wins Rummy!</b> 🎉\n\n"
                          f"They formed two 3-card runs and one 4-card run!",
                     parse_mode="HTML"
                 )
@@ -3647,9 +3662,12 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
             
             session.reset_turn_timer()
         else:
-            # Move failed (might happen if game state changed between query and selection)
-            # We can't easily inform the user in the group without being noisy,
-            # but usually this won't happen.
+            # Move failed - provide visible feedback for diagnosis
+            await context.bot.send_message(
+                chat_id=session.chat_id,
+                text=f"⚠️ <b>Rummy Move Error:</b> {msg}\n(Player: {user.first_name})",
+                parse_mode="HTML"
+            )
             logger.warning(f"Rummy Sealed Move failed for {user.id}: {msg}")
 
 
