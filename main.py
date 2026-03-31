@@ -112,22 +112,30 @@ card_cache_lock = asyncio.Lock()
 
 # Quirky response messages
 QUIRKY_RESPONSES = [
-    "Yeah… that’s not happening",
-    "I considered it. Briefly. No.",
-    "I refuse, and I stand by that decision",
-    "Absolutely not. Hope this helps.",
-    "I said no in several timelines.",
-    "The request was processed and found unnecessary",
-    "I refuse to participate in this chaos.",
-    "I could… but I won’t",
-    "This request embarrasses you.",
-    "I’d rather do nothing.",
-    "Please don’t ever ask that again",
-    "I’m pretending I didn’t see that.",
-    "I’d rather reboot",
-    "Ere",
-    "Ask me again and I’ll still say no.",
-    "I refuse to acknowledge this."
+    "I refuse to acknowledge this.",
+    "I saw it. I ignored it. Intentionally.",
+    "No ❤️",
+    "That’s a no with extra confidence.",
+    "I virtually cannot care less",
+    "You really typed that and hit send 😂.",
+    "Let’s both pretend this didn’t happen. That's what your parents probably said",
+    "Not today. Not tomorrow. Not ever. Not for You",
+    "Hard pass. Very hard",
+    "You thought this would work?",
+    "I’d explain why, but you wouldn’t like the answer.",
+    "I’d say yes, but that would be lying",
+    "/mute You’re testing my patience and losing.",
+    "I’m going to act like this never reached me.",
+    "I’m not doing that, and you knew that.",
+    "I could ignore this politely, but no",
+    "/mute That’s a no with long-term consequences",
+    "No. Let’s not make this worse",
+    "Denied. Touch grass",
+    "Denied. This is why we can’t have nice things",
+    "Denied. Please log off",
+    "No. Fix yourself first"
+
+
 ]
 
 
@@ -4417,7 +4425,7 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     session = game_manager.get_game(chat.id)
     
     if not session or session.state != GameState.IN_PROGRESS:
-        await update.message.reply_text("No active game in progress.")
+        await update.message.reply_text("No active game in progress. An IQ too high ahh")
         return
 
     # Check if the game is turn-based and has a current player
