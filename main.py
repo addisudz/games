@@ -3477,7 +3477,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     meld_text = " ".join(f"{str(c.rank).capitalize()}{suits_emoji.get(str(c.suit).lower(), '')}" for c in meld)
                     meld_keys = ",".join(c.sticker_key for c in meld)
                     results.append(InlineQueryResultArticle(
-                        id=f"rum_lock_{target_len}_{meld_keys}",
+                        id=f"rum_lock_{target_len}_{i}",
                         title=f"L{target_len}: {meld_text}",
                         input_message_content=InputTextMessageContent(f"Played {target_len}-card set")
                     ))
@@ -3607,8 +3607,7 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
             return
             
         length = int(parts[2])
-        keys_str = parts[3]
-        keys = keys_str.split(",")
+        meld_idx = int(parts[3])
         
         # Find active Rummy session for this user
         session = None
@@ -3620,6 +3619,14 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
         if not session or not session.game:
             return
             
+        # Re-get the melds specifically to pick the one by index
+        melds = session.game.get_valid_melds(user.id, length)
+        if meld_idx >= len(melds):
+            return
+            
+        meld = melds[meld_idx]
+        keys = [c.sticker_key for c in meld]
+        
         success, msg, won = session.game.lock_meld(user.id, keys)
         if success:
             chat_id = session.chat_id

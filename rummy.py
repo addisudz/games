@@ -366,6 +366,11 @@ class RummyGame:
         combinations in a Double Deck, then map back to physical Card objects.
         """
         import itertools
+        
+        # Sort cards by suit then rank for deterministic combination generation
+        SUIT_ORDER = {s: i for i, s in enumerate(RummyCard.SUITS)}
+        cards = sorted(cards, key=lambda c: (SUIT_ORDER[c.suit], c.rank_value))
+        
         melds = []
         seen_meld_keys = set()
         
