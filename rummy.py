@@ -76,6 +76,16 @@ class RummyGame:
         self.game_over: bool = False
         self.winner_id: Optional[int] = None
 
+    def get_current_player_id(self) -> Optional[int]:
+        """Return the ID of the player whose turn it is."""
+        return self.current_player_id
+
+    def get_current_player_name(self) -> str:
+        """Return the name of the player whose turn it is."""
+        if self.current_player_id:
+            return self.players.get(self.current_player_id, "Player")
+        return "Player"
+
     # ── Player Management ──────────────────────────────────────────────────────
 
     def add_player(self, user_id: int, display_name: str) -> None:

@@ -1378,6 +1378,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                         reply_markup=keyboard,
                         parse_mode="HTML"
                     )
+                    session.reset_turn_timer()
                 else:
                     await message.reply_text(f"⚠️ {msg}")
                 return
@@ -1403,6 +1404,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                         reply_markup=keyboard,
                         parse_mode="HTML"
                     )
+                    session.reset_turn_timer()
                 else:
                     await message.reply_text(f"⚠️ {msg}")
                 return
@@ -1421,6 +1423,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                                 text=f"🔒 <a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> locked a {length}-card set.", 
                                 parse_mode="HTML"
                             )
+                            session.reset_turn_timer()
                             if won:
                                 await context.bot.send_message(
                                     chat_id=chat.id,
@@ -1446,6 +1449,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     success, msg, won = session.game.lock_meld(user.id, keys)
                     if success:
                         await context.bot.send_message(chat_id=chat.id, text=f"🔒 <a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> locked a {length}-card set.", parse_mode="HTML")
+                        session.reset_turn_timer()
                         if won:
                             await context.bot.send_message(
                                 chat_id=chat.id,
@@ -1478,6 +1482,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 success, msg = session.game.unlock_meld(user.id, length)
                 if success:
                     await context.bot.send_message(chat_id=chat.id, text=f"🔓 <a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> unlocked a {length}-card set.", parse_mode="HTML")
+                    session.reset_turn_timer()
                 else:
                     await context.bot.send_message(chat_id=chat.id, text=f"⚠️ {msg}")
                 return
@@ -3471,11 +3476,11 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 for i, meld in enumerate(melds):
                     meld_text = " ".join(f"{str(c.rank).capitalize()}{suits_emoji.get(str(c.suit).lower(), '')}" for c in meld)
                     meld_keys = ",".join(c.sticker_key for c in meld)
-                results.append(InlineQueryResultArticle(
-                    id=f"rum_lock{target_len}_{user.id}_{i}",
-                    title=f"L{target_len}: {meld_text}",
-                    input_message_content=InputTextMessageContent(f"Lock {target_len}: {meld_keys}")
-                ))
+                    results.append(InlineQueryResultArticle(
+                        id=f"rum_lock_{target_len}_{meld_keys}",
+                        title=f"L{target_len}: {meld_text}",
+                        input_message_content=InputTextMessageContent(f"Locked {target_len}")
+                    ))
                 await iq.answer(results, cache_time=0, is_personal=True)
                 return
 
@@ -3564,37 +3569,81 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     """Track when a user picks a meme from inline query."""
     result = update.chosen_inline_result
     result_id = result.result_id
-    if not result_id.startswith("wdym_"):
-        return
+    # 1. Handle Memes (WDYM)
+    if result_id.startswith("wdym_"):
+        meme_filename = result_id.replace("wdym_", "")
         
-    user = result.from_user
-    meme_filename = result_id.replace("wdym_", "")
-    
-    # Get file_id from cache to keep tracking consistent if needed, 
-    # but the game logic just needs to know who submitted.
-    # We can use filename as the unique identifier for the submission.
-    
-    # We don't have chat_id here, but we can find the session by user
-    session = None
-    for chat_id, s in game_manager.active_games.items():
-        if user.id in s.players and s.game_code == "12":
-            session = s
-            break
+        # Get file_id from cache to keep tracking consistent if needed, 
+        # but the game logic just needs to know who submitted.
+        # We can use filename as the unique identifier for the submission.
+        
+        # We don't have chat_id here, but we can find the session by user
+        session = None
+        for chat_id, s in game_manager.active_games.items():
+            if user.id in s.players and s.game_code == "12":
+                session = s
+                break
+                
+        if not session or not session.game.round_in_progress:
+            return
             
-    if not session or not session.game.round_in_progress:
-        return
+        success = session.game.submit_meme(user.id, meme_filename)
+        if success:
+            # Check if everyone submitted
+            pending = session.game.get_pending_players()
+            if not pending:
+                # All done!
+                session.game.round_in_progress = False
+                if session.game.is_game_over():
+                    await end_game(session.chat_id, context, session)
+                else:
+                    await start_wdym_round(session.chat_id, context)
+
+    # 2. Handle Rummy Sealed Moves (Locking Card Sets)
+    elif result_id.startswith("rum_lock_"):
+        # Format: rum_lock_{length}_{keys}
+        parts = result_id.split("_", 3)
+        if len(parts) < 4:
+            return
+            
+        length = int(parts[2])
+        keys_str = parts[3]
+        keys = keys_str.split(",")
         
-    success = session.game.submit_meme(user.id, meme_filename)
-    if success:
-        # Check if everyone submitted
-        pending = session.game.get_pending_players()
-        if not pending:
-            # All done!
-            session.game.round_in_progress = False
-            if session.game.is_game_over():
-                await end_game(session.chat_id, context, session)
-            else:
-                await start_wdym_round(session.chat_id, context)
+        # Find active Rummy session for this user
+        session = None
+        for cid, s in game_manager.active_games.items():
+            if user.id in s.players and s.game_code == "17":
+                session = s
+                break
+        
+        if not session or not session.game:
+            return
+            
+        success, msg, won = session.game.lock_meld(user.id, keys)
+        if success:
+            chat_id = session.chat_id
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔒 <a href=\"tg://user?id={user.id}\">{session.game.players[user.id]}</a> locked a {length}-card set.",
+                parse_mode="HTML"
+            )
+            
+            if won:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🏆 <b>{session.game.players[user.id]} wins Rummy!</b> 🎉\n\n"
+                         f"They formed two 3-card runs and one 4-card run!",
+                    parse_mode="HTML"
+                )
+                await end_game(chat_id, context, session)
+            
+            session.reset_turn_timer()
+        else:
+            # Move failed (might happen if game state changed between query and selection)
+            # We can't easily inform the user in the group without being noisy,
+            # but usually this won't happen.
+            logger.warning(f"Rummy Sealed Move failed for {user.id}: {msg}")
 
 
 async def start_ts_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
