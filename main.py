@@ -3647,14 +3647,14 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
             chat_id = session.chat_id
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"🔒 <a href=\"tg://user?id={user.id}\">{session.players[user.id]}</a> locked a {length}-card set.",
+                text=f"🔒 <a href=\"tg://user?id={user.id}\">{session.game.players.get(user.id, user.first_name)}</a> locked a {length}-card set.",
                 parse_mode="HTML"
             )
             
             if won:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"🏆 <b>{session.players[user.id]} wins Rummy!</b> 🎉\n\n"
+                    text=f"🏆 <b>{session.game.players.get(user.id, user.first_name)} wins Rummy!</b> 🎉\n\n"
                          f"They formed two 3-card runs and one 4-card run!",
                     parse_mode="HTML"
                 )
