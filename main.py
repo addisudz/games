@@ -3134,8 +3134,8 @@ async def ensure_stickers_cached(context: ContextTypes.DEFAULT_TYPE, force: bool
             
         try:
             sticker_set = await context.bot.get_sticker_set("DeckofCardsTraditional")
-            # The sticker pack order places Ace after 10, then Jack, Queen, King
-            ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'ace', 'jack', 'queen', 'king']
+            # The sticker pack order places Ace after 10, then Jack, King, Queen
+            ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'ace', 'jack', 'king', 'queen']
             # Suits order from emoji inspection: Clubs, Diamonds, Hearts, Spades
             suits = ['clubs', 'diamonds', 'hearts', 'spades']
             
