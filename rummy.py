@@ -144,18 +144,27 @@ class RummyGame:
         if n < 2 or n > 10:
             return False
 
-        # For 6+ players, use a double deck (104 cards)
-        if n > 5:
-            full_deck = self._build_deck() + self._build_deck()
-            random.shuffle(full_deck)
-            self.deck = full_deck
-        else:
-            self.deck = self._build_deck()
+        # Calculate how many cards will be dealt
+        cards_each = self.CARDS_PER_PLAYER.get(n, 10)
+        total_dealt = (n * cards_each) + 1  # starting discard
+
+        # Adaptive Deck Logic: We want at least 26 cards (half a deck) 
+        # remaining in the deck after dealing to prevent immediate repetition.
+        # Calculation: (Dealt + Safety Buffer) / Cards per Deck
+        num_decks = max(1, (total_dealt + 26) // 52 + 1)
+        
+        # Build adaptive deck
+        full_deck = []
+        for _ in range(num_decks):
+            full_deck.extend([RummyCard(r, s) for s in RummyCard.SUITS for r in RummyCard.RANKS])
+        
+        random.shuffle(full_deck)
+        self.deck = full_deck
 
         self.player_ids = list(self.players.keys())
         random.shuffle(self.player_ids)
+        self.locked_melds = {pid: [] for pid in self.player_ids}
 
-        cards_each = self.CARDS_PER_PLAYER[n]
         for pid in self.player_ids:
             self.hands[pid] = [self.deck.pop() for _ in range(cards_each)]
 
