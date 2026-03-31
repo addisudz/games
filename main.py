@@ -4215,7 +4215,7 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     # Show total leaderboard page 1
-    text, reply_markup = _build_leaderboard_message(page=1, game_filter=None)
+    text, reply_markup = await _build_leaderboard_message(page=1, game_filter=None)
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=reply_markup)
 
 
@@ -4230,7 +4230,7 @@ async def handle_leaderboard_callback(update: Update, context: ContextTypes.DEFA
 
     if data == "lb_back" or data == "lb_total":
         # Back to total leaderboard
-        text, reply_markup = _build_leaderboard_message(page=1, game_filter=None)
+        text, reply_markup = await _build_leaderboard_message(page=1, game_filter=None)
         try:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=reply_markup)
         except Exception:
@@ -4240,7 +4240,7 @@ async def handle_leaderboard_callback(update: Update, context: ContextTypes.DEFA
 
     if data == "lb_games":
         # Show game filter selection
-        text, reply_markup = _build_game_filter_message()
+        text, reply_markup = await _build_game_filter_message()
         try:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=reply_markup)
         except Exception:
@@ -4254,7 +4254,7 @@ async def handle_leaderboard_callback(update: Update, context: ContextTypes.DEFA
             page = int(data.split("_")[2])
         except (IndexError, ValueError):
             page = 1
-        text, reply_markup = _build_leaderboard_message(page=page, game_filter=None)
+        text, reply_markup = await _build_leaderboard_message(page=page, game_filter=None)
         try:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=reply_markup)
         except Exception:
@@ -4271,7 +4271,7 @@ async def handle_leaderboard_callback(update: Update, context: ContextTypes.DEFA
         except (IndexError, ValueError):
             await query.answer("Error")
             return
-        text, reply_markup = _build_leaderboard_message(page=page, game_filter=game_name)
+        text, reply_markup = await _build_leaderboard_message(page=page, game_filter=game_name)
         try:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=reply_markup)
         except Exception:
@@ -4282,7 +4282,7 @@ async def handle_leaderboard_callback(update: Update, context: ContextTypes.DEFA
     if data.startswith("lb_game_"):
         # Filter by specific game
         game_name = data[8:]  # everything after "lb_game_"
-        text, reply_markup = _build_leaderboard_message(page=1, game_filter=game_name)
+        text, reply_markup = await _build_leaderboard_message(page=1, game_filter=game_name)
         try:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=reply_markup)
         except Exception:
@@ -4293,16 +4293,16 @@ async def handle_leaderboard_callback(update: Update, context: ContextTypes.DEFA
     await query.answer()
 
 
-def _build_leaderboard_message(page: int, game_filter: Optional[str] = None):
+async def _build_leaderboard_message(page: int, game_filter: Optional[str] = None):
     """
     Build the leaderboard text and inline keyboard.
     Returns (text, InlineKeyboardMarkup).
     """
     if game_filter:
-        entries, current_page, total_pages = get_game_leaderboard(game_filter, page)
+        entries, current_page, total_pages = await get_game_leaderboard(game_filter, page)
         title = f"<b>{game_filter} Leaderboard</b>"
     else:
-        entries, current_page, total_pages = get_total_leaderboard(page)
+        entries, current_page, total_pages = await get_total_leaderboard(page)
         title = "<b>All-Time Leaderboard</b>"
 
     if not entries:
@@ -4357,12 +4357,12 @@ def _build_leaderboard_message(page: int, game_filter: Optional[str] = None):
     return text, InlineKeyboardMarkup(rows)
 
 
-def _build_game_filter_message():
+async def _build_game_filter_message():
     """
     Build a message showing all available games as filter buttons.
     Returns (text, InlineKeyboardMarkup).
     """
-    game_names = get_game_names()
+    game_names = await get_game_names()
 
     if not game_names:
         text = "<b>Filter by Game</b>\n\nNo games with recorded scores yet!"
