@@ -1409,7 +1409,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await message.reply_text(f"⚠️ {msg}")
                 return
                 
-            if text_lower.startswith("lock"):
+            if text_lower.startswith("lock") and "\u200b" not in message.text:
                 # Handle specific lock: "Lock 3: rank_of_suit,rank_of_suit,..."
                 length = 3 if "3" in text_lower else 4
                 if ":" in text_lower:
@@ -3479,7 +3479,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     results.append(InlineQueryResultArticle(
                         id=f"rum_lock_{target_len}_{meld_keys}",
                         title=f"L{target_len}: {meld_text}",
-                        input_message_content=InputTextMessageContent(f"Locked {target_len}")
+                        input_message_content=InputTextMessageContent(f"Locked {target_len}\u200b")
                     ))
                 await iq.answer(results, cache_time=0, is_personal=True)
                 return
