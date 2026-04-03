@@ -11,28 +11,22 @@ class GuessTheImposterGame:
   "Zoo", "Aquarium", "Castle", "Tower", "Tunnel", "Warehouse",
   "Theater", "Bakery", "Barbershop", "Police station", "Fire station",
   "Gas station", "Post office", "Bank",
-
   "Volcano", "Waterfall", "Cave", "Glacier", "Canyon", "Oasis",
   "Reef", "Jungle", "Hill", "Valley", "Cliff", "Beach",
   "Lake", "Pond", "Island", "Swamp", "Field", "Sky",
   "Moon", "Sun",
-
   "Pizza", "Burger", "Sandwich", "Soup", "Salad", "Cake",
   "Cookie", "Ice cream", "Chocolate", "Candy", "Rice", "Pasta",
   "Bread", "Egg", "Cheese", "Banana", "Mango", "Apple",
   "Orange", "Coffee",
-
   "Phone", "Laptop", "Clock", "Mirror", "Door", "Window",
   "Bed", "Chair", "Table", "Fan", "Light bulb", "Backpack",
   "Bottle", "Glass", "Plate", "Spoon", "Knife", "Key",
   "Wallet", "Watch",
-
   "Car", "Bus", "Train", "Airplane", "Bicycle", "Motorcycle",
   "Boat", "Ship", "Scooter", "Truck",
-
   "Shadow", "Fire", "Smoke", "Ice", "Sound", "Light",
   "Dream", "Memory", "Time", "Energy",
-
   "Homework", "Exam", "Alarm", "Shower", "Phone charger",
   "WiFi", "Password", "Notification", "Screenshot"
     ]

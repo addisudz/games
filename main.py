@@ -112,28 +112,28 @@ card_cache_lock = asyncio.Lock()
 
 # Quirky response messages
 QUIRKY_RESPONSES = [
-    # "I refuse to acknowledge this.",
-    # "I saw it. I ignored it. Intentionally.",
-    # "No ❤️",
-    # "That’s a no with extra confidence.",
-    # "I virtually cannot care less",
-    # "You really typed that and hit send 😂.",
-    # "Let’s both pretend this didn’t happen. That's what your parents probably said",
-    # "Not today. Not tomorrow. Not ever. Not for You",
-    # "Hard pass. Very hard",
-    # "You thought this would work?",
-    # "I’d explain why, but you wouldn’t like the answer.",
-    # "I’d say yes, but that would be lying",
+    "I refuse to acknowledge this.",
+    "I saw it. I ignored it. Intentionally.",
+    "No ❤️",
+    "That’s a no with extra confidence.",
+    "I virtually cannot care less",
+    "You really typed that and hit send 😂.",
+    "Let’s both pretend this didn’t happen. That's what your parents probably said",
+    "Not today. Not tomorrow. Not ever. Not for You",
+    "Hard pass. Very hard",
+    "You thought this would work?",
+    "I’d explain why, but you wouldn’t like the answer.",
+    "I’d say yes, but that would be lying",
     "/mute You’re testing my patience and losing.",
-    # "I’m going to act like this never reached me.",
-    # "I’m not doing that, and you knew that.",
-    # "I could ignore this politely, but no",
+    "I’m going to act like this never reached me.",
+    "I’m not doing that, and you knew that.",
+    "I could ignore this politely, but no",
     "/mute That’s a no with long-term consequences",
-    # "No. Let’s not make this worse",
-    # "Denied. Touch grass",
-    # "Denied. This is why we can’t have nice things",
-    # "Denied. Please log off",
-    # "No. Fix yourself first"
+    "No. Let’s not make this worse",
+    "Denied. Touch grass",
+    "Denied. This is why we can’t have nice things",
+    "Denied. Please log off",
+    "No. Fix yourself first"
 
 
 ]
