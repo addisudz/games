@@ -24,6 +24,7 @@ from telegram.ext import (
 )
 from telegram.constants import ChatType, ChatMemberStatus, ParseMode
 from telegram import InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultCachedPhoto, InlineQueryResultCachedSticker, InlineQueryResultsButton
+from put_a_finger_down import PutAFingerDownGame
 from telegram.error import NetworkError, Forbidden, TimedOut, TelegramError
 
 from datetime import datetime, timedelta
@@ -90,12 +91,20 @@ def track_game_task(chat_id: int, task: asyncio.Task) -> None:
     task.add_done_callback(lambda t: active_game_tasks[chat_id].remove(t) if chat_id in active_game_tasks and t in active_game_tasks[chat_id] else None)
 
 def cancel_game_tasks(chat_id: int) -> None:
-    """Cancel all background tasks for a specific game chat."""
+    """Cancel all background tasks for a specific game chat, except the current task."""
     if chat_id in active_game_tasks:
+        current = asyncio.current_task()
+        remaining_tasks = []
         for task in active_game_tasks[chat_id]:
-            if not task.done():
+            if task == current:
+                remaining_tasks.append(task)
+            elif not task.done():
                 task.cancel()
-        del active_game_tasks[chat_id]
+        
+        if remaining_tasks:
+            active_game_tasks[chat_id] = remaining_tasks
+        else:
+            del active_game_tasks[chat_id]
 
 
 # Allowed Group IDs
@@ -161,7 +170,7 @@ GAME_CATEGORIES = {
         "games": [("16", "Guess the Song"), ("12", "What You Meme")]
     },
     "Party Games": {
-        "games": [("3", "Guess the Imposter"), ("14", "The Silent Game"), ("15", "20 Questions"), ("21", "Hear Me Out")]
+        "games": [("3", "Guess the Imposter"), ("14", "The Silent Game"), ("15", "20 Questions"), ("21", "Hear Me Out"), ("24", "Put A Finger Down")]
     },
     "Card Games": {
         "games": [("17", "Rummy")]
@@ -193,7 +202,8 @@ GAMES_METADATA = {
     "20": ("Guess Addis", "2"),
     "21": ("Hear Me Out", "2"),
     "22": ("Name the Player", "2"),
-    "23": ("Movie Scene", "2")
+    "23": ("Movie Scene", "2"),
+    "24": ("Put A Finger Down", "2")
 }
 
 
@@ -529,7 +539,8 @@ async def handle_game_menu_callback(update: Update, context: ContextTypes.DEFAUL
                 "20": ("Guess Addis", "2"),
                 "21": ("Hear Me Out", "2"),
                 "22": ("Name the Player", "2"),
-                "23": ("Movie Scene", "2")
+                "23": ("Movie Scene", "2"),
+                "24": ("Put A Finger Down", "2")
             }
             
             game_name, min_players = game_info.get(game_code, ("General Knowledge", "2"))
@@ -679,6 +690,9 @@ async def start_game_after_delay(chat_id: int, context: ContextTypes.DEFAULT_TYP
         elif session.game_code == "23":
             # Movie Scene
             await start_movie_scene_game(chat_id, context, session)
+        elif session.game_code == "24":
+            # Put A Finger Down
+            await start_finger_game(chat_id, context, session)
 
 
 async def start_hear_me_out_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
@@ -723,6 +737,103 @@ async def start_silent_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, se
              "Good luck... and SHHH! 🤐",
         parse_mode="HTML"
     )
+
+async def start_finger_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
+    """Start the Put A Finger Down game."""
+    start_text = session.game.start_game()
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🖐️ <b>{start_text}</b>\n\nStarting the first round...",
+        parse_mode="HTML"
+    )
+    await asyncio.sleep(2)
+    # Start round 1
+    session.game.current_round = 0
+    await start_finger_round(chat_id, context)
+
+
+async def start_finger_round(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Start a new round of Put A Finger Down."""
+    session = game_manager.get_game(chat_id)
+    if not session or not session.game or session.game_code != "24":
+        return
+
+    question = session.game.next_round()
+    if not question:
+        # Game over
+        await end_game(chat_id, context, session)
+        return
+
+    # Cancel previous tasks (timers)
+    cancel_game_tasks(chat_id)
+
+    # Question text
+    text = (
+        f"Round <b>{session.game.current_round}/15</b>\n\n"
+        f"<b>{question}</b>\n\n"
+        f"⏱ You have <b>45 seconds</b> to answer!"
+    )
+
+    # Button to answer via inline query selection
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🖐️ Yes, I have", switch_inline_query_current_chat=f"finger_yes_{session.game.current_round}"),
+        InlineKeyboardButton("✋ No", switch_inline_query_current_chat=f"finger_no_{session.game.current_round}")
+    ]])
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+    # Start round timer (45s) and reminder (30s mark/15s left)
+    track_game_task(chat_id, asyncio.create_task(finger_round_timer(chat_id, context, session.game.current_round)))
+
+
+async def finger_round_timer(chat_id: int, context: ContextTypes.DEFAULT_TYPE, round_num: int) -> None:
+    """Manage the 45s round timer and 15s reminder for Put A Finger Down."""
+    # 30 seconds wait before reminder
+    await asyncio.sleep(30)
+    
+    session = game_manager.get_game(chat_id)
+    if not session or not session.game or session.game_code != "24" or session.game.current_round != round_num or session.state != GameState.IN_PROGRESS:
+        return
+
+    # Reminder at 15s left
+    non_responders = session.game.get_non_responders()
+    if non_responders:
+        mentions = []
+        for uid in non_responders:
+            name = session.game.players.get(uid, "Player")
+            mentions.append(f"<a href=\"tg://user?id={uid}\">{name}</a>")
+        
+        if mentions:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"⏳ <b>15 seconds left!</b>\n\nRemaining: {', '.join(mentions)}",
+                parse_mode="HTML"
+            )
+
+    # Wait remaining 15 seconds
+    await asyncio.sleep(15)
+    
+    # Reload session check
+    session = game_manager.get_game(chat_id)
+    if not session or not session.game or session.game_code != "24" or session.game.current_round != round_num or session.state != GameState.IN_PROGRESS:
+        return
+
+    # End of round summary
+    summary = "⏰ <b>Round Ended!</b>\n\n"
+    for user_id, name in session.game.players.items():
+        fingers = session.game.fingers.get(user_id, 10)
+        summary += f"• {name}: {fingers} fingers\n"
+    
+    await context.bot.send_message(chat_id=chat_id, text=summary, parse_mode="HTML")
+    
+    # Next round
+    await asyncio.sleep(3)
+    await start_finger_round(chat_id, context)
 
 
 async def process_silent_game_content(update: Update, context: ContextTypes.DEFAULT_TYPE, session) -> bool:
@@ -1317,6 +1428,12 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                         # Winner becomes host
                         await start_20q_round(chat.id, context, forced_host_id=user_id)
 
+        # Handle Put A Finger Down Game
+        elif session.game_code == "24":
+            # Answers are now handled via InlineQueryResultCachedSticker and ChosenInlineResultHandler
+            # No text handling needed for the stickers.
+            return
+
         # Handle Guess the Song Game
         elif session.game_code == "16":
             if not session.game.round_in_progress:
@@ -1580,6 +1697,40 @@ async def end_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) ->
     if not session or not session.game:
         return
     
+    # Handle Put A Finger Down results
+    if session.game_code == "24":
+        results = session.game.get_results()
+        text = "🏆 <b>Put A Finger Down - Final Results</b> 🏆\n\n"
+        for i, (uid, name, fingers) in enumerate(results, 1):
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            text += f"{medal} <b>{name}</b> — {fingers} fingers left\n"
+        
+        await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+        
+        # AI personality analysis
+        prompt = session.game.build_ai_prompt()
+        if prompt:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="🤖 <i>Analyzing your answers... give me a sec.</i>",
+                    parse_mode="HTML"
+                )
+                if gemini_bot.model:
+                    response = await gemini_bot.model.generate_content_async(prompt)
+                    analysis_text = response.text.strip()
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=analysis_text
+                    )
+            except Exception as e:
+                logger.error(f"Finger game AI analysis failed: {e}")
+        
+        session.end_game()
+        cancel_game_tasks(chat_id)
+        game_manager.remove_game(chat_id)
+        return
+
     # Handle Story Builder Game
     if session.game_code == "2":
         full_story = session.game.get_full_story()
@@ -3539,6 +3690,67 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await iq.answer(results, cache_time=0, is_personal=True)
         return
 
+    # 3. Handle Put A Finger Down
+    elif query_text.startswith("finger"):
+        # Find active Finger game session for this user
+        session = None
+        for s in game_manager.active_games.values():
+            if user.id in s.players and s.game_code == "24":
+                session = s
+                break
+
+        if not session or not session.game:
+            await iq.answer([], cache_time=1, is_personal=True,
+                            button=InlineQueryResultsButton(text="No active Finger game", start_parameter="help"))
+            return
+
+        current_fingers = session.game.fingers.get(user.id, 10)
+        cache = get_sticker_cache()
+        results = []
+        
+        # Determine if it's Yes or No from the query
+        parts = query_text.split("_")
+        action = parts[1] if len(parts) > 1 else None
+        round_num = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else session.game.current_round
+        
+        if action == "no":
+            # Use the specific "No" sticker
+            sticker_id = cache.get("twinkhands_no") or cache.get(f"twinkhands_{current_fingers}")
+            if sticker_id:
+                results.append(InlineQueryResultCachedSticker(
+                    id=f"finger_no_{round_num}",
+                    sticker_file_id=sticker_id
+                ))
+        elif action == "yes":
+            # Sticker for Yes (one fewer finger or current if already 0)
+            target_fingers = max(0, current_fingers - 1)
+            sticker_id = cache.get(f"twinkhands_{target_fingers}")
+            if sticker_id:
+                results.append(InlineQueryResultCachedSticker(
+                    id=f"finger_yes_{round_num}",
+                    sticker_file_id=sticker_id
+                ))
+        else:
+            # Show all finger stickers in descending order (10 to 0)
+            for i in range(10, -1, -1):
+                sticker_id = cache.get(f"twinkhands_{i}")
+                if sticker_id:
+                    results.append(InlineQueryResultCachedSticker(
+                        id=f"finger_{i}_{round_num}",
+                        sticker_file_id=sticker_id
+                    ))
+            
+            # Add specific action stickers at the end
+            for act in ["no", "nope"]:
+                sticker_id = cache.get(f"twinkhands_{act}")
+                if sticker_id:
+                    results.append(InlineQueryResultCachedSticker(
+                        id=f"finger_no_{round_num}", 
+                        sticker_file_id=sticker_id
+                    ))
+
+        await iq.answer(results, cache_time=0, is_personal=True)
+        return
 
 async def handle_sticker_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Route sticker messages to the appropriate game handler (Rummy)."""
@@ -3563,28 +3775,66 @@ async def handle_sticker_message(update: Update, context: ContextTypes.DEFAULT_T
     # Silent game sticker handling
     if session.game_code == "14":
         await process_silent_game_content(update, context, session)
+        return
+
+    # Put A Finger Down (game 24)
+    if session.game_code == "24":
+        if user.id not in session.game.players:
+            return
+            
+        cache = get_sticker_cache()
+        sticker_id = message.sticker.file_id
+        
+        # Reverse lookup for finger count
+        found_fingers = None
+        for key, val in cache.items():
+            if val == sticker_id and key.startswith("twinkhands_"):
+                suffix = key.replace("twinkhands_", "")
+                if suffix.isdigit():
+                    found_fingers = int(suffix)
+                elif suffix in ("no", "nope"):
+                    found_fingers = session.game.fingers.get(user.id, 10)  # no/nope = keep fingers
+                break
+        
+        if found_fingers is not None:
+            current_fingers = session.game.fingers.get(user.id, 10)
+            put_down = (found_fingers < current_fingers)
+            success, new_fingers = session.game.handle_answer(user.id, put_down)
+            
+            if success:
+                try:
+                    reactions = ["👍", "🔥", "🎉", "⚡️", "🖐️", "💯"]
+                    await context.bot.set_message_reaction(
+                        chat_id=session.chat_id,
+                        message_id=message.message_id,
+                        reaction=[ReactionTypeEmoji(emoji=random.choice(reactions))]
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not set finger reaction: {e}")
+                
+                # Check if everyone has answered
+                if not session.game.get_non_responders():
+                    pass # Handled by round advance logic
 
 
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Track when a user picks a meme from inline query."""
+    """Track when a user picks a meme from inline query or a card/action in Rummy."""
     result = update.chosen_inline_result
     result_id = result.result_id
+    user = result.from_user
+    
     # 1. Handle Memes (WDYM)
     if result_id.startswith("wdym_"):
         meme_filename = result_id.replace("wdym_", "")
         
-        # Get file_id from cache to keep tracking consistent if needed, 
-        # but the game logic just needs to know who submitted.
-        # We can use filename as the unique identifier for the submission.
-        
-        # We don't have chat_id here, but we can find the session by user
+        # Find session by user and game code
         session = None
-        for chat_id, s in game_manager.active_games.items():
+        for s in game_manager.active_games.values():
             if user.id in s.players and s.game_code == "12":
                 session = s
                 break
                 
-        if not session or not session.game.round_in_progress:
+        if not session or not session.game or not session.game.round_in_progress:
             return
             
         success = session.game.submit_meme(user.id, meme_filename)
@@ -3617,17 +3867,20 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
                 break
         
         if not session or not session.game:
-            # Re-attempt finding for any Rummy game even if code check is weird
+            # Re-attempt finding for any Rummy game
             for s in game_manager.active_games.values():
-                if user.id in s.players:
+                if user.id in s.players and s.game_code == "17":
                     session = s
                     break
         
         if not session:
-            await context.bot.send_message(
-                chat_id=user.id, 
-                text="⚠️ Rummy session not found. Please try again or re-open the hand."
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=user.id, 
+                    text="⚠️ Rummy session not found. Please try again or re-open the hand."
+                )
+            except:
+                pass
             return
             
         # Re-get the melds specifically to pick the one by index
@@ -3669,6 +3922,45 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
                 parse_mode="HTML"
             )
             logger.warning(f"Rummy Sealed Move failed for {user.id}: {msg}")
+
+    # 3. Handle Put A Finger Down
+    elif result_id.startswith("finger_"):
+        # Format: finger_{yes|no|num}_{round}
+        parts = result_id.split("_")
+        if len(parts) < 3:
+            return
+            
+        action = parts[1]
+        round_num = int(parts[2])
+        
+        # Find session
+        session = None
+        for cid, s in game_manager.active_games.items():
+            if user.id in s.players and s.game_code == "24":
+                session = s
+                break
+        
+        if not session or not session.game or session.game.current_round != round_num:
+            return
+
+        if action == "yes":
+            put_down = True
+        elif action == "no":
+            put_down = False
+        elif action.isdigit():
+            # If they picked a specific number, and it's less than current, it's a "yes"
+            target_fingers = int(action)
+            current_fingers = session.game.fingers.get(user.id, 10)
+            put_down = (target_fingers < current_fingers)
+        else:
+            return
+        success, new_fingers = session.game.handle_answer(user.id, put_down)
+        
+        if success:
+            # Check if everyone has answered for this round
+            if not session.game.get_non_responders():
+                pass # Handled by round advance logic
+        return
 
 
 async def start_ts_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
