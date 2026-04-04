@@ -3781,20 +3781,30 @@ async def handle_sticker_message(update: Update, context: ContextTypes.DEFAULT_T
     if session.game_code == "24":
         if user.id not in session.game.players:
             return
-            
-        cache = get_sticker_cache()
-        sticker_id = message.sticker.file_id
         
-        # Reverse lookup for finger count
+        sticker = message.sticker
+        
+        # Only process stickers from the twinkhands pack
+        if not sticker.set_name or sticker.set_name.lower() != "twinkhands":
+            return
+        
+        # Fetch the live sticker set and match by file_unique_id
+        # (file_id is server-specific; file_unique_id is portable across all contexts)
         found_fingers = None
-        for key, val in cache.items():
-            if val == sticker_id and key.startswith("twinkhands_"):
-                suffix = key.replace("twinkhands_", "")
-                if suffix.isdigit():
-                    found_fingers = int(suffix)
-                elif suffix in ("no", "nope"):
-                    found_fingers = session.game.fingers.get(user.id, 10)  # no/nope = keep fingers
-                break
+        try:
+            sticker_set = await context.bot.get_sticker_set("twinkhands")
+            for idx, s in enumerate(sticker_set.stickers):
+                if s.file_unique_id == sticker.file_unique_id:
+                    # Pack order: 0→10 fingers, 1→9 fingers ... 10→0 fingers, 11→No/Nope
+                    if idx <= 10:
+                        found_fingers = 10 - idx
+                    else:
+                        # Index 11 and beyond = "No" sticker → keep current fingers
+                        found_fingers = session.game.fingers.get(user.id, 10)
+                    break
+        except Exception as e:
+            logger.warning(f"Could not fetch twinkhands sticker set: {e}")
+            return
         
         if found_fingers is not None:
             current_fingers = session.game.fingers.get(user.id, 10)
@@ -3814,7 +3824,7 @@ async def handle_sticker_message(update: Update, context: ContextTypes.DEFAULT_T
                 
                 # Check if everyone has answered
                 if not session.game.get_non_responders():
-                    pass # Handled by round advance logic
+                    pass  # Handled by round advance logic
 
 
 async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
