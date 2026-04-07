@@ -439,28 +439,25 @@
             border: 4px solid rgba(255, 255, 255, 0.1);
             border-top: 4px solid var(--accent);
             border-radius: 50%;
-            margin: 0 auto 20px;
+            margin: 0 auto;
             animation: spin 1s linear infinite;
         }
         .sync-text {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 8px;
-            letter-spacing: -0.5px;
+            display: none;
         }
         .sync-status {
-            font-size: 0.9rem;
-            color: var(--text-sub);
-            max-width: 240px;
-            margin: 0 auto;
+            margin-top: 16px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent);
         }
         .sync-btn {
-            margin-top: 24px;
-            padding: 10px 24px;
-            background: var(--accent);
-            border: none;
-            border-radius: 8px;
-            color: white;
+            margin-top: 20px;
+            padding: 8px 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
             font-weight: 700;
             cursor: pointer;
             display: none;
@@ -537,8 +534,7 @@
 <div id="sync-overlay" class="sync-overlay">
     <div class="sync-content">
         <div id="sync-spinner" class="sync-spinner"></div>
-        <div id="sync-text" class="sync-text">Syncing Score...</div>
-        <div id="sync-status-msg" class="sync-status">Saving your progress to Telegram...</div>
+        <div id="sync-status-msg" class="sync-status"></div>
         <button id="sync-continue-btn" class="sync-btn" onclick="hideSyncOverlay()">Continue</button>
     </div>
 </div>
@@ -957,7 +953,7 @@ async function submitScore(finalScore) {
 
     // Show overlay
     overlay.classList.add('visible');
-    statusMsg.textContent = "Connecting to Telegram...";
+    statusMsg.textContent = "";
     continueBtn.style.display = 'none';
     syncSpinner.style.display = 'block';
 
@@ -977,36 +973,20 @@ async function submitScore(finalScore) {
         const data = await response.json();
         
         if (response.ok && data.ok) {
-            syncText.textContent = "Score Synced!";
-            syncSpinner.style.display = 'none';
-            continueBtn.style.display = 'block';
-            
             if (data.rank && data.rank > 0) {
-                statusMsg.textContent = `Amazing! You are now Rank #${data.rank} in this group.`;
+                syncSpinner.style.display = 'none';
+                statusMsg.textContent = "RANK #" + data.rank;
+                continueBtn.style.display = 'block';
                 setSyncStatus(`🏆 Rank #${data.rank} — ${finalScore.toLocaleString()} pts`);
             } else {
-                statusMsg.textContent = "Your score was successfully saved!";
+                hideSyncOverlay();
                 setSyncStatus(`✓ Score saved: ${finalScore.toLocaleString()}`);
             }
         } else {
-            // Handle specialized Telegram errors
-            const description = data.description || '';
-            if (description.includes('smaller') || description.includes('not modified')) {
-                syncText.textContent = "Steady Progress!";
-                statusMsg.textContent = "You've already got a higher score on the board. Keep playing!";
-                setSyncStatus(`Keep going to beat your record!`);
-            } else {
-                syncText.textContent = "Sync Partial";
-                statusMsg.textContent = "Your score was saved locally, but we couldn't update the global leaderboard.";
-            }
-            syncSpinner.style.display = 'none';
-            continueBtn.style.display = 'block';
+            hideSyncOverlay();
         }
     } catch (e) {
-        syncText.textContent = "Network Error";
-        statusMsg.textContent = "Could not reach the server. Playing offline.";
-        syncSpinner.style.display = 'none';
-        continueBtn.style.display = 'block';
+        hideSyncOverlay();
         setSyncStatus(`Offline: ${finalScore.toLocaleString()}`);
     }
 }
