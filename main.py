@@ -8,7 +8,8 @@ import html
 from typing import Optional, Dict, List, Tuple, Union
 from dotenv import load_dotenv
 load_dotenv()
-from flask import Flask
+import requests
+from flask import Flask, render_template, request, jsonify
 
 from telegram import Update, Chat, ChatMember, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton, ReactionTypeEmoji
 from telegram.ext import (
@@ -4581,6 +4582,14 @@ async def handle_rummy_sticker(update, context: ContextTypes.DEFAULT_TYPE, sessi
 
 
 
+async def flappy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the Flappy Bird game into the chat."""
+    await context.bot.send_game(
+        chat_id=update.effective_chat.id,
+        game_short_name="flappybird"
+    )
+
+
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /leaderboard command to show the group leaderboard."""
     chat = update.effective_chat
@@ -4914,6 +4923,30 @@ async def refresh_cache_command(update: Update, context: ContextTypes.DEFAULT_TY
         logger.error(f"Error refreshing cache: {e}")
         await update.message.reply_text(f"⚠️ Error refreshing cache: {e}")
 
+async def handle_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle callback queries for HTML5 games like flappybird."""
+    query = update.callback_query
+    
+    # Check if the callback query contains a game short name
+    if getattr(query, 'game_short_name', None) == "flappybird":
+        # We need an external URL for the game. We'll use GAME_BASE_URL or fallback to RENDER_EXTERNAL_URL
+        base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://flappybird-test.example.com"
+        
+        # Build URL with required params
+        game_url = f"{base_url}/flappybird?user_id={query.from_user.id}"
+        if query.inline_message_id:
+            game_url += f"&inline_message_id={query.inline_message_id}"
+        else:
+            if query.message:
+                game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
+                
+        # Answer the callback query to launch the game
+        await context.bot.answer_callback_query(
+            callback_query_id=query.id,
+            url=game_url
+        )
+        return
+
 def main() -> None:
     """Start the bot."""
     # Get bot token from environment
@@ -4938,6 +4971,7 @@ def main() -> None:
     application.add_handler(CommandHandler("forcequit", forcequit_command))
     application.add_handler(CommandHandler("export", export_command))
     application.add_handler(CommandHandler("vote", vote_command))
+    application.add_handler(CommandHandler("flappy", flappy_command))
     application.add_handler(CommandHandler("extend", extend_command))
     application.add_handler(CommandHandler("leaderboard", leaderboard_command))
     application.add_handler(CommandHandler("settings", settings_command))
@@ -4950,6 +4984,10 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_ts_callback, pattern="^ts_vote_"))
     application.add_handler(CallbackQueryHandler(handle_quit_vote_callback, pattern="^quit_game_vote$"))
     application.add_handler(CallbackQueryHandler(handle_20q_callback, pattern="^view_secret_word$"))
+    
+    # Catch all callback query handlers that have not been filtered out by pattern. This includes games.
+    application.add_handler(CallbackQueryHandler(handle_game_callback))
+    
     application.add_handler(InlineQueryHandler(inline_query_handler))
     application.add_handler(ChosenInlineResultHandler(chosen_inline_result_handler))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
@@ -4970,6 +5008,42 @@ def main() -> None:
     @app.route('/')
     def health_check():
         return "Bot is running!", 200
+
+    @app.route('/flappybird')
+    def flappybird():
+        return render_template('flappybird.html')
+
+    @app.route('/api/set_score', methods=['POST'])
+    def set_score():
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data"}), 400
+            
+        user_id = data.get('user_id')
+        score = data.get('score')
+        inline_message_id = data.get('inline_message_id')
+        chat_id = data.get('chat_id')
+        message_id = data.get('message_id')
+        
+        bot_token = os.environ.get("BOT_TOKEN")
+        url = f"https://api.telegram.org/bot{bot_token}/setGameScore"
+        
+        payload = {
+            "user_id": user_id,
+            "score": score,
+            "force": True
+        }
+        if inline_message_id and inline_message_id != "undefined":
+            payload["inline_message_id"] = inline_message_id
+        elif chat_id and message_id and chat_id != "undefined":
+            payload["chat_id"] = chat_id
+            payload["message_id"] = message_id
+            
+        try:
+            resp = requests.post(url, json=payload)
+            return jsonify(resp.json())
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     def run_flask():
         # Use PORT environment variable from Render, default to 8080
