@@ -878,26 +878,30 @@ async function submitScore(finalScore) {
 
     setSyncStatus('Syncing score…', true);
     try {
-        const params = new URLSearchParams({
-            score: String(finalScore),
-            user_id: userId,
+        const response = await fetch('/api/set_score', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: userId,
+                score: finalScore,
+                inline_message_id: inlineMessageId,
+                chat_id: chatId,
+                message_id: messageId
+            })
         });
-        if (inlineMessageId) params.set('inline_message_id', inlineMessageId);
-        if (chatId)   params.set('chat_id', chatId);
-        if (messageId) params.set('message_id', messageId);
 
-        const res = await fetch(`${BOT_API}/setScore?${params.toString()}`);
-        const data = await res.json();
-
-        if (data.ok || (data.description && data.description.includes('not modified'))) {
+        const data = await response.json();
+        if (response.ok) {
             setSyncStatus(`✓ Score saved: ${finalScore.toLocaleString()}`);
-        } else if (data.description && data.description.includes('SCORE_INVALID')) {
-            setSyncStatus(`Score not a new best — keep playing!`);
+            if (data.rank && data.rank > 0) {
+                // Update with rank info if available
+                setSyncStatus(`🏆 Rank #${data.rank} — ${finalScore.toLocaleString()} pts`);
+            }
         } else {
-            setSyncStatus(`Score: ${finalScore.toLocaleString()} (offline)`);
+            setSyncStatus(`Offline: ${finalScore.toLocaleString()}`);
         }
     } catch (e) {
-        setSyncStatus(`Score: ${finalScore.toLocaleString()} (offline)`);
+        setSyncStatus(`Offline: ${finalScore.toLocaleString()}`);
     }
 }
 

@@ -4598,6 +4598,14 @@ async def typerace_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
 
 
+async def tilepuzzle_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the 2048 game into the chat."""
+    await context.bot.send_game(
+        chat_id=update.effective_chat.id,
+        game_short_name="tilepuzzle"
+    )
+
+
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /leaderboard command to show the group leaderboard."""
     chat = update.effective_chat
@@ -4964,6 +4972,20 @@ async def handle_game_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
+    if getattr(query, 'game_short_name', None) == "tilepuzzle":
+        base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://tilepuzzle-test.example.com"
+        game_url = f"{base_url}/tilepuzzle?user_id={query.from_user.id}"
+        if query.inline_message_id:
+            game_url += f"&inline_message_id={query.inline_message_id}"
+        else:
+            if query.message:
+                game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
+        await context.bot.answer_callback_query(
+            callback_query_id=query.id,
+            url=game_url
+        )
+        return
+
 def main() -> None:
     """Start the bot."""
     # Get bot token from environment
@@ -4990,6 +5012,7 @@ def main() -> None:
     application.add_handler(CommandHandler("vote", vote_command))
     application.add_handler(CommandHandler("flappy", flappy_command))
     application.add_handler(CommandHandler("typerace", typerace_command))
+    application.add_handler(CommandHandler("tilepuzzle", tilepuzzle_command))
     application.add_handler(CommandHandler("extend", extend_command))
     application.add_handler(CommandHandler("leaderboard", leaderboard_command))
     application.add_handler(CommandHandler("settings", settings_command))
@@ -5041,6 +5064,10 @@ def main() -> None:
     @app.route('/typerace')
     def typerace():
         return render_template('typerace.html')
+
+    @app.route('/tilepuzzle')
+    def tilepuzzle():
+        return render_template('2048.html')
 
     @app.route('/api/set_score', methods=['POST'])
     def set_score():
