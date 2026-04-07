@@ -418,7 +418,7 @@
             canvas.width = W;
             canvas.height = H;
             colW = W / COLS;
-            rowH = H / 5;
+            rowH = H / 4; // Taller tiles
             HIT_Y = H * 0.78;
         }
         window.addEventListener('resize', resize);
@@ -434,74 +434,66 @@
         let bestCombo = 0;
 
         // Tile grid system:
-        // Tiles form a continuous grid. Each tile = one row, of height rowH.
-        // The grid scrolls so that one row passes the hit line per beat.
-        // scrollOffset = how many pixels the grid has scrolled down.
-        // tileIndex i has y = i * rowH - scrollOffset
-        // At beat time b[i], tile i should be at HIT_Y, so:
-        //   scrollOffset at beat b[i] = i * rowH - HIT_Y + rowH  (bottom of tile at HIT_Y)
-        // We interpolate scrollOffset from the song time.
+        // Tiles are sized directly from song beat distances.
+        // Screen scrolls at constant speed independent of note spacing.
 
-        let tiles = [];       // pre-generated tile grid (col assignments)
+        let tiles = [];       // generated tiles list
         let particles = [];
         let gameOverTimer = 0;
         let failedTile = null;
         let menuPulse = 0;
         let beatPulse = 0;
-        let scrollOffset = 0; // current scroll offset in pixels
+        let tileSpeed = 0;    // constant speed set on play
+        let avgBeatDuration = 0.5;
         let lastBlackCol = -1;
 
         // ═══════════════════════════════════════════════════════════════════
         //  TILE SYSTEM — pre-scheduled from beat map
-        // ═══════════════════════════════════════════════════════════════════
-        // Pre-generate all tiles from beatMap upfront
         function generateTileGrid() {
             tiles = [];
             lastBlackCol = -1;
+            
+            // Calculate avgBeat to drive scroll speed making average notes H/4 tall
+            if (beatMap.length > 1) {
+                avgBeatDuration = (beatMap[beatMap.length - 1] - beatMap[0]) / Math.max(1, beatMap.length - 1);
+            }
+            tileSpeed = (H / 4) / avgBeatDuration; // Constant scrolling speed (px per sec)
+
             for (let i = 0; i < beatMap.length; i++) {
                 let col;
                 do {
                     col = Math.floor(Math.random() * COLS);
-                } while (col === lastBlackCol && Math.random() < 0.5);
+                } while (col === lastBlackCol); 
                 lastBlackCol = col;
+
+                let beatStart = beatMap[i];
+                let beatEnd = (i < beatMap.length - 1) ? beatMap[i+1] : beatStart + avgBeatDuration;
+                let duration = beatEnd - beatStart;
+                
+                // If the gap to the next note is unusually long, it forms a hold tile
+                let isHold = duration > avgBeatDuration * 1.5;
+
                 tiles.push({
                     index: i,
                     blackCol: col,
+                    beatStart: beatStart,
+                    beatEnd: beatEnd,
+                    isHold: isHold,
                     tapped: false,
+                    holding: false,
+                    holdScoreTimer: 0,
                     tapScale: 0
                 });
             }
         }
 
-        // Get the scroll offset for a given song time
-        // Linear interpolation between beats
-        function getScrollOffset(songTime) {
-            if (beatMap.length === 0) return 0;
-
-            // Find which beat interval we're in
-            let idx = 0;
-            while (idx < beatMap.length - 1 && beatMap[idx + 1] <= songTime) {
-                idx++;
-            }
-
-            if (idx >= beatMap.length - 1) {
-                // Past the last beat
-                return idx * rowH;
-            }
-
-            // Interpolate between beat[idx] and beat[idx+1]
-            const t0 = beatMap[idx];
-            const t1 = beatMap[idx + 1];
-            const frac = (songTime - t0) / (t1 - t0);
-            return (idx + frac) * rowH;
+        // Get exact tile Y boundaries based purely on time
+        function getTileYBottom(tile, songTime) {
+            return HIT_Y + (songTime - tile.beatStart) * tileSpeed;
         }
 
-        // Get tile Y from its index and current scrollOffset
-        function getTileY(tileIndex) {
-            // Tiles stack upward from HIT_Y. As scrollOffset increases, they scroll down.
-            // At scrollOffset = tileIndex * rowH, tile i arrives at HIT_Y.
-            // Before that, tile is above HIT_Y. After, it's below.
-            return HIT_Y - (tileIndex * rowH - scrollOffset);
+        function getTileYTop(tile, songTime) {
+            return HIT_Y + (songTime - tile.beatEnd) * tileSpeed;
         }
 
         // ═══════════════════════════════════════════════════════════════════
@@ -570,40 +562,71 @@
             // No visible hit line — keep it clean like original Piano Tiles
         }
 
-        function drawTiles() {
+        function drawTiles(songTime) {
             for (const tile of tiles) {
-                const y = getTileY(tile.index);
+                const yBottom = getTileYBottom(tile, songTime);
+                const yTop = getTileYTop(tile, songTime);
+                const h = Math.max(1, yBottom - yTop);
+                const y = yTop;
+
                 // Skip if completely off screen
-                if (y + rowH < 0 || y > H) continue;
+                if (y > H || yBottom < 0) continue;
 
                 const x = tile.blackCol * colW;
 
-                // Draw row grid lines (horizontal separators)
-                ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(W, y);
-                ctx.stroke();
+                // Draw logical horizontal grid separators for basic tiles
+                if (!tile.isHold && !tile.tapped) {
+                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(0, yBottom);
+                    ctx.lineTo(W, yBottom);
+                    ctx.stroke();
+                }
 
                 if (tile.tapped) {
-                    // Tapped tile — grey fade
-                    const scale = tile.tapScale;
-                    if (scale > 0) {
-                        ctx.save();
-                        ctx.globalAlpha = scale * 0.5;
-                        ctx.fillStyle = '#888';
-                        ctx.fillRect(x, y, colW, rowH);
-                        ctx.restore();
+                    if (tile.isHold) {
+                        // Drawing a tapped holding tile
+                        // Track visually showing it was started
+                        ctx.fillStyle = '#eee';
+                        ctx.fillRect(x, y, colW, h);
+
+                        // Highlight the remaining tail based on song progression
+                        if (yTop < HIT_Y) {
+                            const remainingTail = Math.max(0, HIT_Y - yTop);
+                            ctx.fillStyle = tile.holding ? '#999' : '#ccc'; // Darker meaning active press
+                            ctx.fillRect(x + colW * 0.1, yTop, colW * 0.8, remainingTail);
+                        }
+                    } else {
+                        // Standard Tapped fade
+                        const scale = tile.tapScale;
+                        if (scale > 0) {
+                            ctx.save();
+                            ctx.globalAlpha = scale * 0.5;
+                            ctx.fillStyle = '#888';
+                            ctx.fillRect(x, y, colW, h);
+                            ctx.restore();
+                        }
                     }
                 } else if (tile === failedTile) {
                     // Failed tile — red
                     ctx.fillStyle = '#ef4444';
-                    ctx.fillRect(x, y, colW, rowH);
+                    ctx.fillRect(x, y, colW, h);
                 } else {
-                    // Active black tile — solid black
-                    ctx.fillStyle = '#1a1a1a';
-                    ctx.fillRect(x, y, colW, rowH);
+                    if (tile.isHold) {
+                        // Untapped Hold Tile
+                        const headH = Math.min(h, rowH);
+                        // Tail
+                        ctx.fillStyle = 'rgba(26, 26, 26, 0.35)'; // Ghost tail
+                        ctx.fillRect(x + colW * 0.15, yTop, colW * 0.7, h - headH + 2);
+                        // Head
+                        ctx.fillStyle = '#1a1a1a';
+                        ctx.fillRect(x, yBottom - headH, colW, headH);
+                    } else {
+                        // Active single black tile — solid black
+                        ctx.fillStyle = '#1a1a1a';
+                        ctx.fillRect(x, y, colW, h);
+                    }
                 }
             }
         }
@@ -786,7 +809,7 @@
             particles = [];
             failedTile = null;
             beatPulse = 0;
-            scrollOffset = 0;
+            prevSongTime = 0;
 
             generateTileGrid();
 
@@ -807,6 +830,13 @@
             submitScore(score);
         }
 
+        function getNextUntappedTile() {
+            for (const tile of tiles) {
+                if (!tile.tapped) return tile;
+            }
+            return null;
+        }
+
         function handleTap(x, y) {
             if (gameState === STATE.MENU) {
                 startGame();
@@ -821,27 +851,20 @@
             const col = Math.floor(x / colW);
             if (col < 0 || col >= COLS) return;
 
-            // Find the tile that was tapped — check by position in the grid
-            let tappedTile = null;
+            // Prioritize tracking the next *required* tile to press over absolute screen Y checks
+            // This grants high forgiveness for vertical tapping position, focusing only on hitting the lowest active column correctly avoiding instant game overs.
+            const targetTile = getNextUntappedTile();
+            if (!targetTile) return;
 
-            for (const tile of tiles) {
-                if (tile.tapped) continue;
-                const tileY = getTileY(tile.index);
-                if (tileY + rowH < 0 || tileY > H) continue;
-
-                // Is the tap within this tile's row?
-                if (y >= tileY && y < tileY + rowH) {
-                    tappedTile = tile;
-                    break;
+            if (col === targetTile.blackCol) {
+                // Correctly tapped the sequence!
+                targetTile.tapped = true;
+                targetTile.tapScale = 1.0;
+                
+                if (targetTile.isHold) {
+                    targetTile.holding = true;
                 }
-            }
 
-            if (!tappedTile) return;
-
-            if (col === tappedTile.blackCol) {
-                // Correct!
-                tappedTile.tapped = true;
-                tappedTile.tapScale = 1.0;
                 score++;
                 combo++;
                 if (combo > bestCombo) bestCombo = combo;
@@ -859,14 +882,24 @@
 
                 playTapSound(col);
 
+                const songTime = getSongTime();
                 const px = col * colW + colW / 2;
-                const py = getTileY(tappedTile.index) + rowH / 2;
+                const py = Math.min(getTileYBottom(targetTile, songTime) - 30, HIT_Y); 
                 const colors = ['#555', '#333', '#777', '#222'];
                 spawnParticles(px, py, colors[Math.floor(Math.random() * colors.length)], 6);
             } else {
-                // Wrong column — game over
-                tappedTile._failCol = col;
-                endGame(tappedTile);
+                // Wrong sequence column clicked—game over
+                targetTile._failCol = col;
+                endGame(targetTile);
+            }
+        }
+
+        function handleRelease(x, y) {
+            // Cancel active hold for any tiles currently being held
+            for (const tile of tiles) {
+                if (tile.holding) {
+                    tile.holding = false;
+                }
             }
         }
 
@@ -883,33 +916,57 @@
             if (gameState !== STATE.PLAYING) return;
 
             const songTime = getSongTime();
-            scrollOffset = getScrollOffset(songTime);
 
-            // Detect song loop — songTime jumping backward significantly
+            // Detect backwards song jump resetting the run
             if (songTime < prevSongTime - 1) {
-                // Song looped, regenerate tiles
                 generateTileGrid();
             }
             prevSongTime = songTime;
 
-            // Animate tap scale fade
             for (const tile of tiles) {
+                // Animate fade scales
                 if (tile.tapped && tile.tapScale > 0) {
                     tile.tapScale -= 0.04;
                 }
+
+                // Append running points for actively held down tiles
+                if (tile.holding) {
+                    tile.holdScoreTimer++;
+                    if (tile.holdScoreTimer > 10) { // Adds 6 pts/sec
+                        score++;
+                        scoreHud.innerText = score;
+                        tile.holdScoreTimer = 0;
+                        
+                        const px = tile.blackCol * colW + colW / 2;
+                        spawnParticles(px, HIT_Y, ['#fff', '#666'], 2);
+                    }
+
+                    // Auto-release holding if tile runs its course below hit line
+                    const yTop = getTileYTop(tile, songTime);
+                    if (yTop > HIT_Y) {
+                        tile.holding = false;
+                    }
+                }
             }
 
-            // Check for missed tiles (scrolled past the bottom)
-            for (const tile of tiles) {
-                if (tile.tapped) continue;
-                const tileY = getTileY(tile.index);
-                if (tileY > H) {
+            // Monitor dropping limits
+            const currentTile = getNextUntappedTile();
+            if (currentTile) {
+                const yBot = getTileYBottom(currentTile, songTime);
+                if (yBot > HIT_Y + rowH * 1.5) { // Very generous boundary below line
                     combo = 0;
                     comboDisplay.style.opacity = '0';
-                    endGame(tile);
+                    endGame(currentTile);
                     return;
                 }
             }
+
+            // Memory clearing passed tiles
+            tiles = tiles.filter(t => {
+                if (!t.tapped) return true;
+                const yTop = getTileYTop(t, songTime);
+                return yTop < H + rowH; // Persist till fully wiped off buffer
+            });
 
             // Beat pulse decay
             if (beatPulse > 0) {
@@ -925,7 +982,7 @@
             drawColumnLines();
 
             if (gameState === STATE.PLAYING || gameState === STATE.GAMEOVER) {
-                drawTiles();
+                drawTiles(getSongTime());
                 drawVisualizer();
                 drawParticles();
             }
@@ -965,8 +1022,19 @@
             }
         }, { passive: false });
 
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                handleRelease(e.changedTouches[i].clientX, e.changedTouches[i].clientY);
+            }
+        }, { passive: false });
+
         canvas.addEventListener('mousedown', (e) => {
             handleTap(e.clientX, e.clientY);
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            handleRelease(e.clientX, e.clientY);
         });
 
         document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
