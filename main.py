@@ -5003,8 +5003,7 @@ def main() -> None:
     logger.info("Bot starting...")
 
     # Set up Flask server for health checks
-    import os
-    assets_dir = os.path.join(os.path.dirname(__file__), "flappy-bird-assets")
+    assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "flappy-bird-assets"))
     app = Flask(__name__, static_folder=assets_dir, static_url_path='/assets')
 
     @app.route('/')
