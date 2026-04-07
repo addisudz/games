@@ -739,6 +739,13 @@
 
 
 
+            const best = localStorage.getItem('pianotiles_best') || 0;
+            if (best > 0) {
+                ctx.font = '700 0.9rem Outfit';
+                ctx.fillStyle = '#e67e22'; // Subtle orange
+                ctx.fillText(`BEST SCORE: ${best}`, W / 2, H * 0.28);
+            }
+
             ctx.font = '900 2.5rem Outfit';
             ctx.fillStyle = '#1a1a1a';
             ctx.fillText('PIANO TILES', W / 2, H * 0.35);
@@ -783,12 +790,7 @@
                 ctx.restore();
             }
 
-            const best = localStorage.getItem('pianotiles_best') || 0;
-            if (best > 0) {
-                ctx.font = '700 1rem Outfit';
-                ctx.fillStyle = '#e67e22';
-                ctx.fillText(`Best Score: ${best}`, W / 2, H * 0.65);
-            }
+
 
             // LEADERBOARD TOP 5
             if (leaderboardData && leaderboardData.length > 0) {
