@@ -873,7 +873,7 @@
             ctx.fillText(`Next: Level ${currentLevel + 1}`, W / 2, H * 0.5);
 
             ctx.font = '400 1rem Outfit';
-            const speedText = (gameSpeed * 1.5).toFixed(1);
+            const speedText = (gameSpeed * 1.25).toFixed(2);
             ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
             ctx.fillText(`Speed: ${speedText}x`, W / 2, H * 0.55);
 
@@ -958,7 +958,7 @@
 
         function nextLevel() {
             currentLevel++;
-            gameSpeed *= 1.5;
+            gameSpeed *= 1.25;
             generateTileGrid();
             gameState = STATE.PLAYING;
             updateProgressBarColor();
