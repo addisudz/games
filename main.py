@@ -5038,7 +5038,8 @@ def main() -> None:
         payload = {
             "user_id": user_id,
             "score": score,
-            "force": True
+            "force": True,
+            "edit_message": True
         }
         if inline_message_id and inline_message_id != "undefined":
             payload["inline_message_id"] = inline_message_id
