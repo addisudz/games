@@ -420,15 +420,17 @@
             submitScore(score);
         }
 
+        let lastJumpTime = 0;
         function action() {
+            if (Date.now() - lastJumpTime < 50) return; // Prevent double trigger from simultaneous touch+mouse
+            lastJumpTime = Date.now();
+            
             if (currentState === STATE.START) {
                 play();
             } else if (currentState === STATE.PLAYING) {
                 bird.flap();
             } else if (currentState === STATE.GAMEOVER) {
-                // Ignore fast taps that would immediately restart the game. Require intentional click.
-                // Or just allow restarting anywhere on game over.
-                // Let's add a small delay to prevent instantly restarting if they were tapping fast when they died.
+                // Ignore fast taps
             }
         }
 
@@ -439,7 +441,7 @@
                     currentState = STATE.START;
                     scoreHud.style.opacity = '0';
                     rankDisplay.style.opacity = '0';
-                    document.getElementById('syncing').style.opacity = '0';
+                    document.getElementById('syncing').style.opacity = '0'; 
                 }
             } else {
                 action();
@@ -461,22 +463,38 @@
             }
         });
 
-        function loop() {
-            ctx.clearRect(0, 0, width, height);
+        const fixedDelta = 1000 / 60; // strictly 60 ticks per second
+        let accumulator = 0;
+        let lastTime = 0;
 
-            bg.draw();
-            bg.update();
-            pipes.draw();
-            pipes.update();
-            base.draw();
-            base.update();
+        function loop(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            let dt = timestamp - lastTime;
+            lastTime = timestamp;
+            
+            if (dt > 100) dt = fixedDelta; // Prevent spiral of death on lag / tab switch
+            accumulator += dt;
 
-            bird.draw();
-            bird.update();
+            let updated = false;
+            while(accumulator >= fixedDelta) {
+                bg.update();
+                pipes.update();
+                base.update();
+                bird.update();
+                frames++;
+                accumulator -= fixedDelta;
+                updated = true;
+            }
 
-            drawUI();
-
-            frames++;
+            if (updated || currentState === STATE.START || currentState === STATE.GAMEOVER) {
+                ctx.clearRect(0, 0, width, height);
+                bg.draw();
+                pipes.draw();
+                base.draw();
+                bird.draw();
+                drawUI();
+            }
+            
             requestAnimationFrame(loop);
         }
 
