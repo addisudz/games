@@ -200,16 +200,20 @@
         // Fetch on load
         fetchLeaderboard();
 
-        async function submitScore(sc) {
+        async function submitScore(sc, silent = false) {
             const overlay = document.getElementById('sync-overlay');
             const statusMsg = document.getElementById('sync-status-msg');
             const syncSpinner = document.getElementById('sync-spinner');
             const continueBtn = document.getElementById('sync-continue-btn');
             if (!userId || sc <= 0) return;
-            overlay.classList.add('visible');
-            statusMsg.textContent = "";
-            continueBtn.style.display = 'none';
-            syncSpinner.style.display = 'block';
+
+            if (!silent) {
+                overlay.classList.add('visible');
+                statusMsg.textContent = "";
+                continueBtn.style.display = 'none';
+                syncSpinner.style.display = 'block';
+            }
+
             try {
                 const response = await fetch('/api/set_score', {
                     method: 'POST',
@@ -223,13 +227,15 @@
                 const data = await response.json();
                 if (response.ok && data.ok) {
                     fetchLeaderboard(); // Refresh leaderboard data
-                    if (data.rank && data.rank > 0) {
-                        syncSpinner.style.display = 'none';
-                        statusMsg.textContent = "RANK #" + data.rank;
-                        continueBtn.style.display = 'block';
-                    } else { hideSyncOverlay(); }
-                } else { hideSyncOverlay(); }
-            } catch (err) { hideSyncOverlay(); }
+                    if (!silent) {
+                        if (data.rank && data.rank > 0) {
+                            syncSpinner.style.display = 'none';
+                            statusMsg.textContent = "RANK #" + data.rank;
+                            continueBtn.style.display = 'block';
+                        } else { hideSyncOverlay(); }
+                    }
+                } else { if (!silent) hideSyncOverlay(); }
+            } catch (err) { if (!silent) hideSyncOverlay(); }
         }
 
         function hideSyncOverlay() {
@@ -946,7 +952,6 @@
             gameState = STATE.CLEARED;
             clearedTimer = Date.now();
             stopSong();
-            submitScore(score); // Submit high score on every clear
         }
 
         function nextLevel() {
