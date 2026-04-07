@@ -426,7 +426,6 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreHud = document.getElementById('scoreHud');
-        const comboDisplay = document.getElementById('comboDisplay');
 
         let W, H;
         const COLS = 4;
@@ -879,7 +878,6 @@
             gameState = STATE.PLAYING;
             scoreHud.innerText = '0';
             scoreHud.style.opacity = '1';
-            comboDisplay.style.opacity = '0';
 
             playSong();
         }
