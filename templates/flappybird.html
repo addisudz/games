@@ -468,11 +468,15 @@
         let lastTime = 0;
 
         function loop(timestamp) {
+            if (!timestamp) {
+                requestAnimationFrame(loop);
+                return;
+            }
             if (!lastTime) lastTime = timestamp;
             let dt = timestamp - lastTime;
             lastTime = timestamp;
             
-            if (dt > 100) dt = fixedDelta; // Prevent spiral of death on lag / tab switch
+            if (dt > 100) dt = fixedDelta; 
             accumulator += dt;
 
             let updated = false;
@@ -486,14 +490,13 @@
                 updated = true;
             }
 
-            if (updated || currentState === STATE.START || currentState === STATE.GAMEOVER) {
-                ctx.clearRect(0, 0, width, height);
-                bg.draw();
-                pipes.draw();
-                base.draw();
-                bird.draw();
-                drawUI();
-            }
+            // Always draw if in START or GAMEOVER to show the message.png or gameover.png
+            ctx.clearRect(0, 0, width, height);
+            bg.draw();
+            pipes.draw();
+            base.draw();
+            bird.draw();
+            drawUI();
             
             requestAnimationFrame(loop);
         }
