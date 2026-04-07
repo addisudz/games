@@ -307,15 +307,49 @@
         #rank-badge {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 14px 28px;
+            border-radius: 16px;
+            padding: 20px 32px;
             font-size: 1rem;
             color: var(--text-main);
             margin-bottom: 28px;
-            min-width: 260px;
+            min-width: 300px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
         }
 
         #rank-badge span { color: var(--accent); font-weight: 700; }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border);
+            border-top: 3px solid var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .syncing-pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+            color: var(--text-sub);
+            font-size: 0.9rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
 
         #sync-status {
             font-size: 0.85rem;
@@ -466,7 +500,10 @@
         </div>
     </div>
 
-    <div id="rank-badge">⏳ Syncing score...</div>
+    <div id="rank-badge">
+        <div class="spinner"></div>
+        <div class="syncing-pulse">Syncing score...</div>
+    </div>
     <div id="sync-status"></div>
     <button class="retry-btn" id="retry-btn">Play Again</button>
 </div>
@@ -479,37 +516,40 @@ const inlineMessageId = urlParams.get('inline_message_id');
 const chatId = urlParams.get('chat_id');
 const messageId = urlParams.get('message_id');
 
-// ======================== WORD POOL ========================
-const WORD_POOL = [
-    "the", "be", "of", "and", "a", "in", "to", "have", "it", "for",
-    "not", "on", "with", "he", "as", "you", "do", "at", "this", "but",
-    "his", "by", "from", "they", "we", "say", "her", "she", "or", "an",
-    "will", "my", "one", "all", "would", "there", "their", "what", "so",
-    "up", "out", "if", "about", "who", "get", "which", "go", "me", "when",
-    "make", "can", "like", "time", "no", "just", "him", "know", "take",
-    "people", "into", "year", "your", "good", "some", "could", "them",
-    "see", "other", "than", "then", "now", "look", "only", "come", "its",
-    "over", "think", "also", "back", "after", "use", "two", "how", "our",
-    "work", "first", "well", "way", "even", "new", "want", "because",
-    "any", "these", "give", "day", "most", "great", "between", "need",
-    "large", "often", "hand", "high", "place", "hold", "turn", "move",
-    "play", "small", "number", "off", "always", "next", "food", "keep",
-    "children", "feet", "land", "side", "without", "once", "paper", "hard",
-    "near", "sentence", "better", "open", "example", "story", "light",
-    "voice", "power", "town", "fine", "drive", "short", "road", "book",
-    "stop", "city", "tree", "cross", "farm", "hard", "start", "might",
-    "walk", "river", "four", "carry", "state", "once", "book", "hear",
-    "stop", "call", "eyes", "letter", "until", "real", "life", "few",
-    "north", "open", "seem", "together", "next", "white", "children", "begin",
-    "got", "walk", "example", "ease", "paper", "group", "always"
+const BOOK_EXCERPTS = [
+    {
+        text: "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.",
+        source: "Pride and Prejudice, Jane Austen"
+    },
+    {
+        text: "Call me Ishmael. Some years ago—never mind how long precisely—having little or no money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world.",
+        source: "Moby Dick, Herman Melville"
+    },
+    {
+        text: "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity, it was the season of Light, it was the season of Darkness, it was the spring of hope, it was the winter of despair.",
+        source: "A Tale of Two Cities, Charles Dickens"
+    },
+    {
+        text: "In my younger and more vulnerable years my father gave me some advice that I've been turning over in my mind ever since. Whenever you feel like criticizing any one, he told me, just remember that all the people in this world haven't had the advantages that you've had.",
+        source: "The Great Gatsby, F. Scott Fitzgerald"
+    },
+    {
+        text: "Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do: once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it, 'and what is the use of a book,' thought Alice 'without pictures or conversations?'",
+        source: "Alice's Adventures in Wonderland, Lewis Carroll"
+    },
+    {
+        text: "The Sherlock Holmes she had known was a man of iron, or at least of steel, but here was a man of flesh and blood, with a heart that could be reached and a spirit that could be moved.",
+        source: "The Adventures of Sherlock Holmes, Arthur Conan Doyle"
+    },
+    {
+        text: "All children, except one, grow up. They soon know that they will grow up, and the way Wendy knew was this. One day when she was two years old she was playing in a garden, and she plucked another flower and ran with it to her mother. I suppose she must have looked rather delightful, for Mrs. Darling put her hand to her heart and cried, 'Oh, why can't you remain like this for ever!'",
+        source: "Peter Pan, J.M. Barrie"
+    }
 ];
 
-function generateWords(count = 80) {
-    const out = [];
-    for (let i = 0; i < count; i++) {
-        out.push(WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)]);
-    }
-    return out;
+function getRandomParagraph() {
+    const excerpt = BOOK_EXCERPTS[Math.floor(Math.random() * BOOK_EXCERPTS.length)];
+    return excerpt.text.split(' ');
 }
 
 // ======================== STATE ========================
@@ -634,7 +674,8 @@ function startTimer() {
 
         // Update accuracy live
         if (totalKeystrokes > 0) {
-            accDisplay.textContent = Math.round((correctKeystrokes / totalKeystrokes) * 100);
+            const acc = Math.max(0, Math.min(100, Math.round((correctKeystrokes / totalKeystrokes) * 100)));
+            accDisplay.textContent = acc;
         }
     }, 1000);
 }
@@ -644,8 +685,7 @@ inputEl.addEventListener('input', () => {
     if (!gameRunning) return;
 
     const val = inputEl.value;
-    const lastChar = val[val.length - 1];
-
+    
     // Start timer on first keystroke
     if (!gameStarted && val.length > 0) {
         gameStarted = true;
@@ -653,27 +693,40 @@ inputEl.addEventListener('input', () => {
     }
 
     // Space = submit word
-    if (lastChar === ' ') {
+    if (val.endsWith(' ') && val.length > 0) {
         commitWord();
         return;
     }
 
+    // Tracking Keystrokes for Accuracy
+    if (val.length > typed.length) {
+        // Character added
+        totalKeystrokes++;
+        const idx = val.length - 1;
+        const letters = letterEls[curWordIdx];
+        if (letters && idx < letters.length && val[idx] === letters[idx].char) {
+            correctKeystrokes++;
+        }
+    } else if (val.length < typed.length) {
+        // Character removed (Backspace)
+        totalKeystrokes++;
+    }
+
     typed = val;
-    totalKeystrokes++;
 
     const letters = letterEls[curWordIdx];
     const word = words[curWordIdx];
 
     // Reset all letters to dim
-    letterEls[curWordIdx].forEach(l => l.el.className = 'letter');
+    if (letters) {
+        letters.forEach(l => l.el.className = 'letter');
 
-    // Apply correct/wrong
-    for (let i = 0; i < val.length; i++) {
-        if (i < letters.length) {
-            letters[i].el.className = 'letter ' + (val[i] === letters[i].char ? 'correct' : 'wrong');
-            if (val[i] === letters[i].char) correctKeystrokes++;
+        // Apply correct/wrong
+        for (let i = 0; i < val.length; i++) {
+            if (i < letters.length) {
+                letters[i].el.className = 'letter ' + (val[i] === letters[i].char ? 'correct' : 'wrong');
+            }
         }
-        // extra chars beyond the word length shown differently
     }
 
     // Wrong word border
@@ -757,6 +810,11 @@ function endGame() {
     document.getElementById('result-chars').textContent = correctChars;
 
     showScreen('result-screen');
+    
+    // Reset to loading state before submission
+    rankBadge.innerHTML = '<div class="spinner"></div><div class="syncing-pulse">Syncing score...</div>';
+    syncStatus.textContent = '';
+    
     submitScore(finalWpm, finalAcc, correctWords);
 }
 
@@ -786,16 +844,16 @@ async function submitScore(wpm, acc, wordsTyped) {
         const data = await response.json();
         if (response.ok) {
             if (data.rank && data.rank > 0) {
-                rankBadge.innerHTML = `🏆 Rank <span>#${data.rank}</span> in the group`;
+                rankBadge.innerHTML = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:4px; letter-spacing:1px;">GROUP STANDING</div><div style="font-size:1.2rem;">🏆 Rank <span>#${data.rank}</span></div>`;
             } else {
-                rankBadge.innerHTML = `<span>${wpm} WPM</span> submitted!`;
+                rankBadge.innerHTML = `<div style="font-size:1.2rem;"><span>${wpm} WPM</span> submitted!</div>`;
             }
             syncStatus.textContent = '';
         } else if (data.description && data.description.includes('smaller')) {
-            rankBadge.innerHTML = `<span>${wpm} WPM</span> — not your best`;
+            rankBadge.innerHTML = `<div style="font-size:1.2rem;"><span>${wpm} WPM</span> — not your best</div>`;
             syncStatus.textContent = 'Your high score is still on the board.';
         } else {
-            rankBadge.innerHTML = 'Sync failed';
+            rankBadge.innerHTML = '<div style="color:var(--wrong);">Sync failed</div>';
             syncStatus.textContent = data.description || 'Unknown error';
         }
     } catch (err) {
@@ -804,39 +862,48 @@ async function submitScore(wpm, acc, wordsTyped) {
     }
 }
 
-// ======================== INIT / RESTART ========================
+// ======================== START / RESTART ========================
 function initGame() {
+    words = getRandomParagraph();
     curWordIdx = 0;
     curLetterIdx = 0;
     typed = '';
+    
     correctWords = 0;
     totalChars = 0;
     correctChars = 0;
     totalKeystrokes = 0;
     correctKeystrokes = 0;
-    gameRunning = true;
+    
     gameStarted = false;
+    gameRunning = true;
+    timeLeft = MODE_TIME;
+
+    wpmDisplay.textContent = '0';
+    accDisplay.textContent = '100';
+    progressFill.style.width = '0%';
     timerText.textContent = MODE_TIME;
     timerCircle.style.strokeDashoffset = 0;
-    wpmDisplay.textContent = 0;
-    accDisplay.textContent = 100;
-    progressFill.style.width = '0%';
-    inputEl.value = '';
-    inputEl.classList.remove('wrong-word');
 
-    words = generateWords(80);
-    wordsInner.style.transform = 'translateX(0)';
     buildWordUI();
-
-    showScreen('game-screen');
-    setTimeout(() => inputEl.focus(), 50);
+    scrollToCurrentWord();
+    
+    inputEl.value = '';
+    setTimeout(() => inputEl.focus(), 100);
 }
 
-document.getElementById('start-btn').addEventListener('click', initGame);
-document.getElementById('retry-btn').addEventListener('click', () => showScreen('start-screen'));
+document.getElementById('start-btn').addEventListener('click', () => {
+    showScreen('game-screen');
+    initGame();
+});
 
-// Auto-focus input when clicking anywhere on game screen  
-document.getElementById('game-screen').addEventListener('click', () => {
+document.getElementById('retry-btn').addEventListener('click', () => {
+    showScreen('game-screen');
+    initGame();
+});
+
+// Auto-focus input on game screen
+document.addEventListener('keydown', () => {
     if (gameRunning) inputEl.focus();
 });
 </script>
