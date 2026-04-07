@@ -5165,6 +5165,52 @@ def main() -> None:
             logger.error(f"Critical error in set_score: {e}")
             return jsonify({"ok": False, "error": str(e)}), 500
 
+    @app.route('/api/get_leaderboard', methods=['POST'])
+    def get_leaderboard():
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data"}), 400
+            
+        user_id = data.get('user_id')
+        inline_message_id = data.get('inline_message_id')
+        chat_id = data.get('chat_id')
+        message_id = data.get('message_id')
+        
+        bot_token = os.environ.get("BOT_TOKEN")
+        hs_url = f"https://api.telegram.org/bot{bot_token}/getGameHighScores"
+        hs_payload = {"user_id": user_id}
+        
+        if inline_message_id and inline_message_id != "undefined":
+            hs_payload["inline_message_id"] = inline_message_id
+        elif chat_id and message_id and chat_id != "undefined":
+            hs_payload["chat_id"] = chat_id
+            hs_payload["message_id"] = message_id
+            
+        try:
+            resp = requests.post(hs_url, json=hs_payload, timeout=10)
+            res_data = resp.json()
+            
+            if not res_data.get('ok'):
+                return jsonify(res_data)
+                
+            result = res_data.get('result', [])
+            top_scores = result[:5]  # Top 5
+            
+            user_rank = -1
+            for s in result:
+                if str(s.get('user', {}).get('id')) == str(user_id):
+                    user_rank = s.get('position', -1)
+                    break
+                    
+            return jsonify({
+                "ok": True,
+                "leaderboard": top_scores,
+                "user_rank": user_rank
+            })
+        except Exception as e:
+            logger.error(f"Error in get_leaderboard: {e}")
+            return jsonify({"ok": False, "error": str(e)}), 500
+
     def run_flask():
         # Use PORT environment variable from Render, default to 8080
         port = int(os.environ.get("PORT", 8080))

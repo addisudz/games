@@ -45,20 +45,7 @@
             transition: opacity 0.3s, transform 0.15s;
         }
 
-        #comboDisplay {
-            position: absolute;
-            top: calc(5% + 4rem);
-            width: 100%;
-            text-align: center;
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: #e67e22;
-            text-shadow: none;
-            z-index: 10;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
+
 
         .sync-overlay {
             position: fixed;
@@ -134,7 +121,7 @@
 <body>
 
     <div id="scoreHud">0</div>
-    <div id="comboDisplay"></div>
+
     <canvas id="gameCanvas"></canvas>
 
     <div id="sync-overlay" class="sync-overlay">
@@ -154,6 +141,32 @@
         const inlineMessageId = urlParams.get('inline_message_id');
         const chatId = urlParams.get('chat_id');
         const messageId = urlParams.get('message_id');
+
+        async function fetchLeaderboard() {
+            if (!userId) return;
+            try {
+                const response = await fetch('/api/get_leaderboard', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        inline_message_id: inlineMessageId,
+                        chat_id: chatId,
+                        message_id: messageId
+                    })
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    leaderboardData = data.leaderboard || [];
+                    userRank = data.user_rank;
+                }
+            } catch (err) {
+                console.error("Leaderboard fetch failed:", err);
+            }
+        }
+
+        // Fetch on load
+        fetchLeaderboard();
 
         async function submitScore(sc) {
             const overlay = document.getElementById('sync-overlay');
@@ -177,6 +190,7 @@
                 });
                 const data = await response.json();
                 if (response.ok && data.ok) {
+                    fetchLeaderboard(); // Refresh leaderboard data
                     if (data.rank && data.rank > 0) {
                         syncSpinner.style.display = 'none';
                         statusMsg.textContent = "RANK #" + data.rank;
@@ -430,8 +444,8 @@
         const STATE = { MENU: 0, PLAYING: 1, GAMEOVER: 2 };
         let gameState = STATE.MENU;
         let score = 0;
-        let combo = 0;
-        let bestCombo = 0;
+        let leaderboardData = [];
+        let userRank = -1;
 
         // Tile grid system:
         // Tiles are sized directly from song beat distances.
@@ -662,9 +676,7 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            ctx.font = '900 3rem Outfit';
-            ctx.fillStyle = '#222';
-            ctx.fillText('🎹', W / 2, H * 0.25);
+
 
             ctx.font = '900 2.5rem Outfit';
             ctx.fillStyle = '#1a1a1a';
@@ -678,7 +690,7 @@
                 ctx.font = '700 1rem Outfit';
                 ctx.fillStyle = '#555';
                 const pct = Math.floor(loadProgress * 100);
-                ctx.fillText(`Analyzing song... ${pct}%`, W / 2, H * 0.55);
+                ctx.fillText(`Loading Song (1.5Mb)... ${pct}%`, W / 2, H * 0.55);
 
                 const barW = 180, barH = 6;
                 ctx.fillStyle = 'rgba(0,0,0,0.08)';
@@ -708,17 +720,36 @@
                 ctx.fillStyle = '#fff';
                 ctx.fillText('TAP TO PLAY', 0, 2);
                 ctx.restore();
-
-                ctx.font = '400 0.8rem Outfit';
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-                ctx.fillText(`♪ ${beatMap.length} beats detected ♪`, W / 2, H * 0.65);
             }
 
             const best = localStorage.getItem('pianotiles_best') || 0;
             if (best > 0) {
                 ctx.font = '700 1rem Outfit';
                 ctx.fillStyle = '#e67e22';
-                ctx.fillText(`Best: ${best}`, W / 2, H * 0.75);
+                ctx.fillText(`Best Score: ${best}`, W / 2, H * 0.65);
+            }
+
+            // LEADERBOARD TOP 5
+            if (leaderboardData && leaderboardData.length > 0) {
+                const startY = H * 0.72;
+                ctx.font = '900 0.9rem Outfit';
+                ctx.fillStyle = '#333';
+                ctx.fillText('LEADERBOARD', W / 2, startY - 25);
+                
+                ctx.font = '400 0.85rem Outfit';
+                leaderboardData.forEach((entry, idx) => {
+                    const name = entry.user.first_name || "Unknown";
+                    const score = entry.score;
+                    const rank = entry.position;
+                    ctx.fillStyle = rank === userRank ? '#e67e22' : 'rgba(0,0,0,0.6)';
+                    ctx.fillText(`${rank}. ${name}: ${score}`, W / 2, startY + (idx * 20));
+                });
+
+                if (userRank > 5) {
+                    ctx.font = '700 0.85rem Outfit';
+                    ctx.fillStyle = '#e67e22';
+                    ctx.fillText(`Your Rank: #${userRank}`, W / 2, startY + 110);
+                }
             }
 
             ctx.restore();
@@ -744,13 +775,7 @@
 
             ctx.font = '400 1rem Outfit';
             ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-            ctx.fillText('TILES', W / 2, H * 0.48);
-
-            if (bestCombo > 5) {
-                ctx.font = '700 1.1rem Outfit';
-                ctx.fillStyle = '#e67e22';
-                ctx.fillText(`Best Combo: ${bestCombo}×`, W / 2, H * 0.55);
-            }
+            ctx.fillText('TILES tapped', W / 2, H * 0.48);
 
             const best = localStorage.getItem('pianotiles_best') || 0;
             if (score > best) {
@@ -811,8 +836,6 @@
             initAudio();
 
             score = 0;
-            combo = 0;
-            bestCombo = 0;
             particles = [];
             failedTile = null;
             beatPulse = 0;
@@ -873,19 +896,9 @@
                 }
 
                 score++;
-                combo++;
-                if (combo > bestCombo) bestCombo = combo;
-
                 scoreHud.innerText = score;
                 scoreHud.style.transform = 'scale(1.15)';
                 setTimeout(() => scoreHud.style.transform = 'scale(1)', 100);
-
-                if (combo >= 5) {
-                    comboDisplay.innerText = `🔥 ${combo}× Combo`;
-                    comboDisplay.style.opacity = '1';
-                } else {
-                    comboDisplay.style.opacity = '0';
-                }
 
                 playTapSound(col);
 
@@ -961,8 +974,6 @@
             if (currentTile) {
                 const yBot = getTileYBottom(currentTile, songTime);
                 if (yBot > HIT_Y + rowH * 1.5) { // Very generous boundary below line
-                    combo = 0;
-                    comboDisplay.style.opacity = '0';
                     endGame(currentTile);
                     return;
                 }
