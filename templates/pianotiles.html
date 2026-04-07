@@ -453,24 +453,40 @@
             tiles = [];
             lastBlackCol = -1;
             
-            // Calculate avgBeat to drive scroll speed making average notes H/4 tall
-            if (beatMap.length > 1) {
-                avgBeatDuration = (beatMap[beatMap.length - 1] - beatMap[0]) / Math.max(1, beatMap.length - 1);
-            }
-            tileSpeed = (H / 4) / avgBeatDuration; // Constant scrolling speed (px per sec)
+            if (beatMap.length < 2) return;
 
-            for (let i = 0; i < beatMap.length; i++) {
+            // 1. Find the typical (median) beat gap to establish consistent sizing
+            let gaps = [];
+            for (let i = 0; i < beatMap.length - 1; i++) {
+                gaps.push(beatMap[i+1] - beatMap[i]);
+            }
+            gaps.sort((a,b) => a - b);
+            let medianGap = gaps[Math.floor(gaps.length / 2)];
+            
+            // 2. Filter out false-positive phantom beats that create randomly short tiles
+            let cleanBeats = [beatMap[0]];
+            for (let i = 1; i < beatMap.length; i++) {
+                let diff = beatMap[i] - cleanBeats[cleanBeats.length - 1];
+                if (diff > medianGap * 0.6) { // Must be at least 60% of a normal beat away
+                    cleanBeats.push(beatMap[i]);
+                }
+            }
+
+            avgBeatDuration = medianGap;
+            tileSpeed = (rowH) / avgBeatDuration; // Ensure 1 normal beat gap = exactly 1 rowH visually
+
+            for (let i = 0; i < cleanBeats.length; i++) {
                 let col;
                 do {
                     col = Math.floor(Math.random() * COLS);
                 } while (col === lastBlackCol); 
                 lastBlackCol = col;
 
-                let beatStart = beatMap[i];
-                let beatEnd = (i < beatMap.length - 1) ? beatMap[i+1] : beatStart + avgBeatDuration;
+                let beatStart = cleanBeats[i];
+                let beatEnd = (i < cleanBeats.length - 1) ? cleanBeats[i+1] : beatStart + avgBeatDuration;
                 let duration = beatEnd - beatStart;
                 
-                // If the gap to the next note is unusually long, it forms a hold tile
+                // Intentional long gap forms a hold tile
                 let isHold = duration > avgBeatDuration * 1.5;
 
                 tiles.push({
@@ -565,8 +581,16 @@
         function drawTiles(songTime) {
             for (const tile of tiles) {
                 const yBottom = getTileYBottom(tile, songTime);
-                const yTop = getTileYTop(tile, songTime);
-                const h = Math.max(1, yBottom - yTop);
+                
+                // Normal tiles are identical in height
+                let h = rowH; 
+                let yTop = yBottom - rowH;
+                
+                if (tile.isHold) {
+                    yTop = getTileYTop(tile, songTime);
+                    h = Math.max(rowH, yBottom - yTop);
+                }
+
                 const y = yTop;
 
                 // Skip if completely off screen
@@ -574,38 +598,23 @@
 
                 const x = tile.blackCol * colW;
 
-                // Draw logical horizontal grid separators for basic tiles
-                if (!tile.isHold && !tile.tapped) {
-                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    ctx.moveTo(0, yBottom);
-                    ctx.lineTo(W, yBottom);
-                    ctx.stroke();
-                }
-
                 if (tile.tapped) {
                     if (tile.isHold) {
-                        // Drawing a tapped holding tile
-                        // Track visually showing it was started
-                        ctx.fillStyle = '#eee';
-                        ctx.fillRect(x, y, colW, h);
-
-                        // Highlight the remaining tail based on song progression
-                        if (yTop < HIT_Y) {
-                            const remainingTail = Math.max(0, HIT_Y - yTop);
-                            ctx.fillStyle = tile.holding ? '#999' : '#ccc'; // Darker meaning active press
-                            ctx.fillRect(x + colW * 0.1, yTop, colW * 0.8, remainingTail);
+                        // Tapped hold tile gradient
+                        const remainingTail = Math.max(0, HIT_Y - yTop);
+                        if (remainingTail > 0) {
+                            const grad = ctx.createLinearGradient(0, yTop, 0, yTop + remainingTail);
+                            grad.addColorStop(0, tile.holding ? '#aaa' : '#ccc');
+                            grad.addColorStop(1, tile.holding ? '#666' : '#999');
+                            ctx.fillStyle = grad;
+                            ctx.fillRect(x, yTop, colW, remainingTail);
                         }
                     } else {
                         // Standard Tapped fade
                         const scale = tile.tapScale;
                         if (scale > 0) {
-                            ctx.save();
-                            ctx.globalAlpha = scale * 0.5;
-                            ctx.fillStyle = '#888';
-                            ctx.fillRect(x, y, colW, h);
-                            ctx.restore();
+                            ctx.fillStyle = `rgba(136, 136, 136, ${scale * 0.5})`;
+                            ctx.fillRect(x, yBottom - rowH, colW, rowH);
                         }
                     }
                 } else if (tile === failedTile) {
@@ -614,18 +623,16 @@
                     ctx.fillRect(x, y, colW, h);
                 } else {
                     if (tile.isHold) {
-                        // Untapped Hold Tile
-                        const headH = Math.min(h, rowH);
-                        // Tail
-                        ctx.fillStyle = 'rgba(26, 26, 26, 0.35)'; // Ghost tail
-                        ctx.fillRect(x + colW * 0.15, yTop, colW * 0.7, h - headH + 2);
-                        // Head
-                        ctx.fillStyle = '#1a1a1a';
-                        ctx.fillRect(x, yBottom - headH, colW, headH);
-                    } else {
-                        // Active single black tile — solid black
-                        ctx.fillStyle = '#1a1a1a';
+                        // Untapped Hold Tile Gradient
+                        const grad = ctx.createLinearGradient(0, yTop, 0, yBottom);
+                        grad.addColorStop(0, '#555');    // Lighter top
+                        grad.addColorStop(1, '#111');    // Dark bottom (hit point)
+                        ctx.fillStyle = grad;
                         ctx.fillRect(x, y, colW, h);
+                    } else {
+                        // Active uniform black tile
+                        ctx.fillStyle = '#1a1a1a';
+                        ctx.fillRect(x, yBottom - rowH, colW, rowH);
                     }
                 }
             }
