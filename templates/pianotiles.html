@@ -240,7 +240,13 @@
                 songElement = new Audio('/piano-tiles/song.mp3');
                 songElement.crossOrigin = 'anonymous';
                 songElement.preload = 'auto';
-                songElement.loop = true;
+                songElement.loop = false; // Levels end the song
+
+                songElement.addEventListener('ended', () => {
+                    if (gameState === STATE.PLAYING) {
+                        onLevelCleared();
+                    }
+                });
 
                 await new Promise((resolve, reject) => {
                     songElement.addEventListener('canplaythrough', resolve, { once: true });
@@ -264,8 +270,11 @@
                 try {
                     songElement = new Audio('/piano-tiles/song.mp3');
                     songElement.crossOrigin = 'anonymous';
-                    songElement.loop = true;
+                    songElement.loop = false;
                     songElement.preload = 'auto';
+                    songElement.addEventListener('ended', () => {
+                        if (gameState === STATE.PLAYING) onLevelCleared();
+                    });
                     await new Promise((resolve) => {
                         songElement.addEventListener('canplaythrough', resolve, { once: true });
                         songElement.addEventListener('error', resolve, { once: true });
@@ -361,6 +370,7 @@
             }
 
             songElement.currentTime = 0;
+            songElement.playbackRate = gameSpeed;
             songElement.play().catch(e => console.error('Play failed:', e));
         }
 
@@ -441,9 +451,12 @@
         // ═══════════════════════════════════════════════════════════════════
         //  GAME STATE
         // ═══════════════════════════════════════════════════════════════════
-        const STATE = { MENU: 0, PLAYING: 1, GAMEOVER: 2 };
+        const STATE = { MENU: 0, PLAYING: 1, GAMEOVER: 2, CLEARED: 3 };
         let gameState = STATE.MENU;
         let score = 0;
+        let currentLevel = 1;
+        let gameSpeed = 1.0;
+        let clearedTimer = 0;
         let leaderboardData = [];
         let userRank = -1;
 
@@ -789,12 +802,30 @@
                 ctx.fillText(`Best: ${best}`, W / 2, H * 0.62);
             }
 
-            if (Date.now() - gameOverTimer > 1000) {
-                const a = 0.3 + Math.sin(Date.now() / 400) * 0.2;
-                ctx.font = '400 1rem Outfit';
-                ctx.fillStyle = `rgba(0, 0, 0, ${a})`;
-                ctx.fillText('Tap to restart', W / 2, H * 0.78);
-            }
+            ctx.restore();
+        }
+
+        function drawLevelCleared() {
+            const alpha = Math.min(0.8, (Date.now() - clearedTimer) / 500);
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.fillRect(0, 0, W, H);
+
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            ctx.font = '900 3rem Outfit';
+            ctx.fillStyle = '#22c55e'; // Green
+            ctx.fillText('LEVEL CLEARED', W / 2, H * 0.4);
+
+            ctx.font = '700 1.5rem Outfit';
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillText(`Next: Level ${currentLevel + 1}`, W / 2, H * 0.5);
+
+            ctx.font = '400 1rem Outfit';
+            const speedText = (gameSpeed * 1.5).toFixed(1);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillText(`Speed: ${speedText}x`, W / 2, H * 0.55);
 
             ctx.restore();
         }
@@ -836,6 +867,8 @@
             initAudio();
 
             score = 0;
+            currentLevel = 1;
+            gameSpeed = 1.0;
             particles = [];
             failedTile = null;
             beatPulse = 0;
@@ -848,6 +881,25 @@
             scoreHud.style.opacity = '1';
             comboDisplay.style.opacity = '0';
 
+            playSong();
+        }
+
+        function skipLevel() {
+            onLevelCleared();
+        }
+
+        function onLevelCleared() {
+            gameState = STATE.CLEARED;
+            clearedTimer = Date.now();
+            stopSong();
+            submitScore(score); // Submit high score on every clear
+        }
+
+        function nextLevel() {
+            currentLevel++;
+            gameSpeed *= 1.5;
+            generateTileGrid();
+            gameState = STATE.PLAYING;
             playSong();
         }
 
@@ -876,6 +928,7 @@
                 if (Date.now() - gameOverTimer > 1000) gameState = STATE.MENU;
                 return;
             }
+            if (gameState === STATE.CLEARED) return;
             if (gameState !== STATE.PLAYING) return;
 
             const col = Math.floor(x / colW);
@@ -933,12 +986,18 @@
         let prevSongTime = 0;
 
         function update() {
+            if (gameState === STATE.CLEARED) {
+                if (Date.now() - clearedTimer > 2500) {
+                    nextLevel();
+                }
+                return;
+            }
             if (gameState !== STATE.PLAYING) return;
 
             const songTime = getSongTime();
 
-            // Detect backwards song jump resetting the run
-            if (songTime < prevSongTime - 1) {
+            // Detect backwards song jump resetting the run (loop safety if for some reason it loops)
+            if (songTime < prevSongTime - 1 && songTime > 0.1) {
                 generateTileGrid();
             }
             prevSongTime = songTime;
@@ -1012,6 +1071,10 @@
 
             if (gameState === STATE.GAMEOVER) {
                 drawGameOver();
+            }
+
+            if (gameState === STATE.CLEARED) {
+                drawLevelCleared();
             }
         }
 
