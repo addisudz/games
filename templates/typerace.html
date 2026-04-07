@@ -277,49 +277,90 @@
             margin-bottom: 32px;
         }
 
-        .result-grid {
+        .result-card {
+            width: 100%;
+            max-width: 540px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .stats-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px 40px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            width: 100%;
+            margin-bottom: 24px;
         }
 
-        .result-stat {
-            text-align: center;
+        .stat-item {
+            background: var(--surface);
+            padding: 24px 16px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: transform 0.2s, border-color 0.2s;
         }
 
-        .result-stat .big {
+        .stat-item:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent);
+        }
+
+        .stat-item .stat-value {
+            font-size: 2.8rem;
             font-family: 'Roboto Mono', monospace;
-            font-size: clamp(2.8rem, 10vw, 4.5rem);
-            font-weight: 500;
             color: var(--accent);
             line-height: 1;
         }
 
-        .result-stat .label {
-            margin-top: 6px;
+        .stat-item .stat-label {
             font-size: 0.7rem;
             letter-spacing: 2px;
             text-transform: uppercase;
             color: var(--text-sub);
         }
 
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         #rank-badge {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 16px;
-            padding: 20px 32px;
-            font-size: 1rem;
-            color: var(--text-main);
-            margin-bottom: 28px;
-            min-width: 300px;
-            display: flex;
+            padding: 24px;
+            margin-bottom: 24px;
+            width: 100%;
+            display: none; /* Hidden until sync completes */
             flex-direction: column;
             align-items: center;
-            gap: 16px;
+            gap: 8px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            position: relative;
-            overflow: hidden;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .rank-label {
+            font-size: 0.75rem;
+            color: var(--text-sub);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .rank-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .rank-value span {
+            color: var(--accent);
         }
 
         #rank-badge span { color: var(--accent); font-weight: 700; }
@@ -358,21 +399,42 @@
             min-height: 20px;
         }
 
-        .retry-btn {
-            background: transparent;
-            border: 2px solid var(--accent);
-            border-radius: 10px;
-            padding: 12px 36px;
-            color: var(--accent);
+        .action-btns {
+            display: flex;
+            gap: 12px;
+            width: 100%;
+            max-width: 400px;
+            margin-top: 8px;
+        }
+
+        .action-btn {
+            flex: 1;
+            background: var(--accent);
+            color: #000;
+            border: none;
+            border-radius: 12px;
+            padding: 14px 20px;
             font-family: 'Inter', sans-serif;
             font-size: 0.95rem;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
             transition: all 0.2s;
         }
 
-        .retry-btn:hover { background: var(--caret-bg); }
+        .action-btn:hover { filter: brightness(1.1); transform: translateY(-2px); }
+        .action-btn:active { transform: translateY(0); }
+
+        .action-btn.secondary {
+            background: var(--surface);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+        }
+
+        .action-btn.secondary:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
 
         /* Countdown ring  */
         #timer-ring {
@@ -539,35 +601,37 @@
 
 <!-- ========== RESULTS SCREEN ========== -->
 <div id="result-screen" class="screen hidden">
-    <h2>Results</h2>
-    <div class="result-grid">
     <div class="result-card">
-        <h2 style="font-size:2rem; margin-bottom:20px; letter-spacing:-1px;">Race Results</h2>
+        <div id="header" style="margin-bottom:32px; opacity: 1;">
+            <svg viewBox="0 0 24 24"><path d="M3 17h2v-7H3v7zm4 0h2V7H7v10zm4 0h2v-4h-2v4zm4 0h2V3h-2v14zm4 0h2v-10h-2v10zM2 19h20v2H2z"/></svg>
+            <span>Race Results</span>
+        </div>
+
         <div class="stats-grid">
             <div class="stat-item">
-                <div class="stat-label">WPM</div>
                 <div class="stat-value" id="result-wpm">0</div>
+                <div class="stat-label">WPM</div>
             </div>
             <div class="stat-item">
-                <div class="stat-label">Accuracy</div>
                 <div class="stat-value" id="result-acc">0%</div>
+                <div class="stat-label">Accuracy</div>
             </div>
             <div class="stat-item">
-                <div class="stat-label">Words</div>
                 <div class="stat-value" id="result-words">0</div>
+                <div class="stat-label">Words</div>
             </div>
             <div class="stat-item">
-                <div class="stat-label">Chars</div>
                 <div class="stat-value" id="result-chars">0</div>
+                <div class="stat-label">Chars</div>
             </div>
         </div>
         
         <div id="rank-badge"></div>
         <div id="sync-status"></div>
 
-        <div class="action-btns" style="margin-top:30px;">
+        <div class="action-btns">
             <button class="action-btn" id="retry-btn">Try Again</button>
-            <button class="action-btn secondary" onclick="location.reload()">New Paragraph</button>
+            <button class="action-btn secondary" onclick="location.reload()">New Topic</button>
         </div>
     </div>
 </div>
@@ -929,10 +993,15 @@ async function submitScore(wpm, acc, wordsTyped) {
                 syncSpinner.style.display = 'none';
                 statusMsg.textContent = "RANK #" + data.rank;
                 continueBtn.style.display = 'block';
-                rankBadge.innerHTML = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:4px; letter-spacing:1px;">GROUP STANDING</div><div style="font-size:1.2rem;">🏆 Rank <span>#${data.rank}</span></div>`;
+                rankBadge.style.display = 'flex';
+                rankBadge.innerHTML = `
+                    <div class="rank-label">GROUP STANDING</div>
+                    <div class="rank-value">🏆 Rank <span>#${data.rank}</span></div>
+                `;
             } else {
                 hideSyncOverlay();
-                rankBadge.innerHTML = `<div style="font-size:1.2rem;"><span>${wpm} WPM</span> submitted!</div>`;
+                rankBadge.style.display = 'flex';
+                rankBadge.innerHTML = `<div class="rank-value"><span>${wpm} WPM</span> submitted!</div>`;
             }
         } else {
             hideSyncOverlay();
@@ -968,6 +1037,14 @@ function initGame() {
     progressFill.style.width = '0%';
     timerText.textContent = MODE_TIME;
     timerCircle.style.strokeDashoffset = 0;
+
+    const rankBadge = document.getElementById('rank-badge');
+    if (rankBadge) {
+        rankBadge.style.display = 'none';
+        rankBadge.innerHTML = '';
+    }
+    const syncStatus = document.getElementById('sync-status');
+    if (syncStatus) syncStatus.innerHTML = '';
 
     buildWordUI();
     scrollToCurrentWord();
