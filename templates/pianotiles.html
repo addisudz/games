@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Piano Tiles</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: #f0f0f0;
+            overflow: hidden;
+            touch-action: none;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #scoreHud {
+            position: absolute;
+            top: 5%;
+            width: 100%;
+            text-align: center;
+            font-size: 3.5rem;
+            font-weight: 900;
+            color: #222;
+            text-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.15s;
+        }
+
+        #comboDisplay {
+            position: absolute;
+            top: calc(5% + 4rem);
+            width: 100%;
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #e67e22;
+            text-shadow: none;
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .sync-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(5, 5, 15, 0.92);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+            backdrop-filter: blur(12px);
+        }
+
+        .sync-overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .sync-content {
+            text-align: center;
+            color: white;
+            animation: syncPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes syncPop {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .sync-spinner {
+            width: 60px;
+            height: 60px;
+            border: 6px solid rgba(255, 255, 255, 0.08);
+            border-top: 6px solid #c084fc;
+            border-radius: 50%;
+            margin: 0 auto;
+            animation: spin 1s linear infinite;
+        }
+
+        .sync-status {
+            margin-top: 20px;
+            font-size: 1.2rem;
+            font-weight: 900;
+            color: #ffd700;
+            text-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+        }
+
+        .sync-btn {
+            margin-top: 24px;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #7c3aed, #c084fc);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 900;
+            font-family: 'Outfit', sans-serif;
+            cursor: pointer;
+            display: none;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 20px rgba(124, 58, 237, 0.4);
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="scoreHud">0</div>
+    <div id="comboDisplay"></div>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="sync-overlay" class="sync-overlay">
+        <div class="sync-content">
+            <div id="sync-spinner" class="sync-spinner"></div>
+            <div id="sync-status-msg" class="sync-status"></div>
+            <button id="sync-continue-btn" class="sync-btn" onclick="hideSyncOverlay()">Continue</button>
+        </div>
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════════════════════════════
+        //  TELEGRAM
+        // ═══════════════════════════════════════════════════════════════════
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get('user_id');
+        const inlineMessageId = urlParams.get('inline_message_id');
+        const chatId = urlParams.get('chat_id');
+        const messageId = urlParams.get('message_id');
+
+        async function submitScore(sc) {
+            const overlay = document.getElementById('sync-overlay');
+            const statusMsg = document.getElementById('sync-status-msg');
+            const syncSpinner = document.getElementById('sync-spinner');
+            const continueBtn = document.getElementById('sync-continue-btn');
+            if (!userId || sc <= 0) return;
+            overlay.classList.add('visible');
+            statusMsg.textContent = "";
+            continueBtn.style.display = 'none';
+            syncSpinner.style.display = 'block';
+            try {
+                const response = await fetch('/api/set_score', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: userId, score: sc,
+                        inline_message_id: inlineMessageId,
+                        chat_id: chatId, message_id: messageId
+                    })
+                });
+                const data = await response.json();
+                if (response.ok && data.ok) {
+                    if (data.rank && data.rank > 0) {
+                        syncSpinner.style.display = 'none';
+                        statusMsg.textContent = "RANK #" + data.rank;
+                        continueBtn.style.display = 'block';
+                    } else { hideSyncOverlay(); }
+                } else { hideSyncOverlay(); }
+            } catch (err) { hideSyncOverlay(); }
+        }
+
+        function hideSyncOverlay() {
+            document.getElementById('sync-overlay').classList.remove('visible');
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  AUDIO — Offline beat analysis + playback
+        // ═══════════════════════════════════════════════════════════════════
+        let audioCtx = null;
+        let songBuffer = null;   // decoded AudioBuffer for analysis
+        let songElement = null;  // HTMLAudioElement for playback
+        let sourceNode = null;   // MediaElementSourceNode
+        let analyserNode = null; // for visualizer only
+        let frequencyData = null;
+        let beatMap = [];        // array of beat times in seconds
+        let songReady = false;
+        let loadProgress = 0;
+
+        // ── Offline beat detection ──────────────────────────────────────
+        async function loadAndAnalyzeSong() {
+            try {
+                loadProgress = 0.1;
+
+                // Fetch the raw audio data
+                const resp = await fetch('/piano-tiles/song.mp3');
+                const arrayBuf = await resp.arrayBuffer();
+                loadProgress = 0.3;
+
+                // Decode for analysis
+                const offCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 1, 44100);
+                songBuffer = await offCtx.decodeAudioData(arrayBuf.slice(0)); // slice to avoid detached buffer
+                loadProgress = 0.5;
+
+                // Analyze beats
+                beatMap = detectBeats(songBuffer);
+                loadProgress = 0.8;
+
+                // Also set up the HTML audio element for playback
+                songElement = new Audio('/piano-tiles/song.mp3');
+                songElement.crossOrigin = 'anonymous';
+                songElement.preload = 'auto';
+                songElement.loop = true;
+
+                await new Promise((resolve, reject) => {
+                    songElement.addEventListener('canplaythrough', resolve, { once: true });
+                    songElement.addEventListener('error', reject, { once: true });
+                    songElement.load();
+                });
+
+                loadProgress = 1.0;
+                songReady = true;
+            } catch (e) {
+                console.error('Song load/analysis failed:', e);
+                // Fallback: generate a simple rhythmic beat map
+                beatMap = [];
+                const bpm = 120;
+                const interval = 60 / bpm;
+                for (let t = 0; t < 300; t += interval) {
+                    beatMap.push(t);
+                }
+                
+                // Try loading audio element anyway
+                try {
+                    songElement = new Audio('/piano-tiles/song.mp3');
+                    songElement.crossOrigin = 'anonymous';
+                    songElement.loop = true;
+                    songElement.preload = 'auto';
+                    await new Promise((resolve) => {
+                        songElement.addEventListener('canplaythrough', resolve, { once: true });
+                        songElement.addEventListener('error', resolve, { once: true });
+                        songElement.load();
+                    });
+                } catch(e2) {}
+                
+                loadProgress = 1.0;
+                songReady = true;
+            }
+        }
+
+        function detectBeats(buffer) {
+            const data = buffer.getChannelData(0);
+            const sampleRate = buffer.sampleRate;
+            const frameSize = Math.floor(sampleRate * 0.02); // 20ms frames
+            const hopSize = Math.floor(frameSize / 2);        // 10ms hop
+            const numFrames = Math.floor((data.length - frameSize) / hopSize);
+
+            // 1. Compute energy per frame
+            const energies = new Float32Array(numFrames);
+            for (let i = 0; i < numFrames; i++) {
+                const start = i * hopSize;
+                let sum = 0;
+                for (let j = 0; j < frameSize; j++) {
+                    const s = data[start + j];
+                    sum += s * s;
+                }
+                energies[i] = sum / frameSize;
+            }
+
+            // 2. Compute spectral flux (energy difference)
+            const flux = new Float32Array(numFrames);
+            for (let i = 1; i < numFrames; i++) {
+                const diff = energies[i] - energies[i - 1];
+                flux[i] = diff > 0 ? diff : 0; // only positive changes (onsets)
+            }
+
+            // 3. Adaptive threshold — local mean + multiplier
+            const beats = [];
+            const windowSize = 40; // ~400ms window for local average
+            const multiplier = 1.6;
+            const minInterval = 0.15; // minimum 150ms between beats
+
+            for (let i = windowSize; i < numFrames - windowSize; i++) {
+                // Local average of flux
+                let localSum = 0;
+                for (let j = i - windowSize; j <= i + windowSize; j++) {
+                    localSum += flux[j];
+                }
+                const localAvg = localSum / (windowSize * 2 + 1);
+
+                const threshold = localAvg * multiplier + 0.0001;
+
+                if (flux[i] > threshold) {
+                    // Check it's a local peak
+                    if (flux[i] >= flux[i - 1] && flux[i] >= flux[i + 1]) {
+                        const time = (i * hopSize) / sampleRate;
+
+                        // Enforce minimum interval
+                        if (beats.length === 0 || time - beats[beats.length - 1] >= minInterval) {
+                            beats.push(time);
+                        }
+                    }
+                }
+            }
+
+            console.log(`Detected ${beats.length} beats in ${buffer.duration.toFixed(1)}s song`);
+            return beats;
+        }
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        let mediaSourceCreated = false;
+
+        function playSong() {
+            if (!songElement || !audioCtx) return;
+
+            // Only create MediaElementSource once
+            if (!mediaSourceCreated) {
+                sourceNode = audioCtx.createMediaElementSource(songElement);
+                analyserNode = audioCtx.createAnalyser();
+                analyserNode.fftSize = 256;
+                frequencyData = new Uint8Array(analyserNode.frequencyBinCount);
+                sourceNode.connect(analyserNode);
+                analyserNode.connect(audioCtx.destination);
+                mediaSourceCreated = true;
+            }
+
+            songElement.currentTime = 0;
+            songElement.play().catch(e => console.error('Play failed:', e));
+        }
+
+        function stopSong() {
+            if (songElement) {
+                songElement.pause();
+                songElement.currentTime = 0;
+            }
+        }
+
+        function getSongTime() {
+            return songElement ? songElement.currentTime : 0;
+        }
+
+        // Tap feedback sound
+        function playTapSound(col) {
+            if (!audioCtx) return;
+            const freqs = [523.25, 587.33, 659.25, 783.99];
+            const freq = freqs[col % 4];
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, now);
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.08, now + 0.008);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 0.2);
+        }
+
+        function playMissSound() {
+            if (!audioCtx) return;
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, now);
+            osc.frequency.linearRampToValueAtTime(80, now + 0.3);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 0.3);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  CANVAS
+        // ═══════════════════════════════════════════════════════════════════
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreHud = document.getElementById('scoreHud');
+        const comboDisplay = document.getElementById('comboDisplay');
+
+        let W, H;
+        const COLS = 4;
+        let colW, rowH;
+
+        // The "hit line" — where the player should tap tiles
+        // Positioned at ~80% of screen height
+        let HIT_Y;
+
+        function resize() {
+            W = window.innerWidth;
+            H = window.innerHeight;
+            canvas.width = W;
+            canvas.height = H;
+            colW = W / COLS;
+            rowH = H / 5;
+            HIT_Y = H * 0.78;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  GAME STATE
+        // ═══════════════════════════════════════════════════════════════════
+        const STATE = { MENU: 0, PLAYING: 1, GAMEOVER: 2 };
+        let gameState = STATE.MENU;
+        let score = 0;
+        let combo = 0;
+        let bestCombo = 0;
+
+        // Tile grid system:
+        // Tiles form a continuous grid. Each tile = one row, of height rowH.
+        // The grid scrolls so that one row passes the hit line per beat.
+        // scrollOffset = how many pixels the grid has scrolled down.
+        // tileIndex i has y = i * rowH - scrollOffset
+        // At beat time b[i], tile i should be at HIT_Y, so:
+        //   scrollOffset at beat b[i] = i * rowH - HIT_Y + rowH  (bottom of tile at HIT_Y)
+        // We interpolate scrollOffset from the song time.
+
+        let tiles = [];       // pre-generated tile grid (col assignments)
+        let particles = [];
+        let gameOverTimer = 0;
+        let failedTile = null;
+        let menuPulse = 0;
+        let beatPulse = 0;
+        let scrollOffset = 0; // current scroll offset in pixels
+        let lastBlackCol = -1;
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  TILE SYSTEM — pre-scheduled from beat map
+        // ═══════════════════════════════════════════════════════════════════
+        // Pre-generate all tiles from beatMap upfront
+        function generateTileGrid() {
+            tiles = [];
+            lastBlackCol = -1;
+            for (let i = 0; i < beatMap.length; i++) {
+                let col;
+                do {
+                    col = Math.floor(Math.random() * COLS);
+                } while (col === lastBlackCol && Math.random() < 0.5);
+                lastBlackCol = col;
+                tiles.push({
+                    index: i,
+                    blackCol: col,
+                    tapped: false,
+                    tapScale: 0
+                });
+            }
+        }
+
+        // Get the scroll offset for a given song time
+        // Linear interpolation between beats
+        function getScrollOffset(songTime) {
+            if (beatMap.length === 0) return 0;
+
+            // Find which beat interval we're in
+            let idx = 0;
+            while (idx < beatMap.length - 1 && beatMap[idx + 1] <= songTime) {
+                idx++;
+            }
+
+            if (idx >= beatMap.length - 1) {
+                // Past the last beat
+                return idx * rowH;
+            }
+
+            // Interpolate between beat[idx] and beat[idx+1]
+            const t0 = beatMap[idx];
+            const t1 = beatMap[idx + 1];
+            const frac = (songTime - t0) / (t1 - t0);
+            return (idx + frac) * rowH;
+        }
+
+        // Get tile Y from its index and current scrollOffset
+        function getTileY(tileIndex) {
+            // Tiles stack upward from HIT_Y. As scrollOffset increases, they scroll down.
+            // At scrollOffset = tileIndex * rowH, tile i arrives at HIT_Y.
+            // Before that, tile is above HIT_Y. After, it's below.
+            return HIT_Y - (tileIndex * rowH - scrollOffset);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  PARTICLES
+        // ═══════════════════════════════════════════════════════════════════
+        function spawnParticles(x, y, color, count) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const spd = 2 + Math.random() * 5;
+                particles.push({
+                    x, y,
+                    vx: Math.cos(angle) * spd,
+                    vy: Math.sin(angle) * spd - 2,
+                    life: 1.0,
+                    decay: 0.02 + Math.random() * 0.03,
+                    size: 3 + Math.random() * 5,
+                    color
+                });
+            }
+        }
+
+        function updateParticles(dt) {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.15;
+                p.life -= p.decay;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+        }
+
+        function drawParticles() {
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  DRAWING
+        // ═══════════════════════════════════════════════════════════════════
+        function drawBackground() {
+            // Clean white background
+            ctx.fillStyle = '#f5f5f5';
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        function drawColumnLines() {
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+            ctx.lineWidth = 1;
+            for (let i = 1; i < COLS; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * colW, 0);
+                ctx.lineTo(i * colW, H);
+                ctx.stroke();
+            }
+        }
+
+        function drawHitLine() {
+            // No visible hit line — keep it clean like original Piano Tiles
+        }
+
+        function drawTiles() {
+            for (const tile of tiles) {
+                const y = getTileY(tile.index);
+                // Skip if completely off screen
+                if (y + rowH < 0 || y > H) continue;
+
+                const x = tile.blackCol * colW;
+
+                // Draw row grid lines (horizontal separators)
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(W, y);
+                ctx.stroke();
+
+                if (tile.tapped) {
+                    // Tapped tile — grey fade
+                    const scale = tile.tapScale;
+                    if (scale > 0) {
+                        ctx.save();
+                        ctx.globalAlpha = scale * 0.5;
+                        ctx.fillStyle = '#888';
+                        ctx.fillRect(x, y, colW, rowH);
+                        ctx.restore();
+                    }
+                } else if (tile === failedTile) {
+                    // Failed tile — red
+                    ctx.fillStyle = '#ef4444';
+                    ctx.fillRect(x, y, colW, rowH);
+                } else {
+                    // Active black tile — solid black
+                    ctx.fillStyle = '#1a1a1a';
+                    ctx.fillRect(x, y, colW, rowH);
+                }
+            }
+        }
+
+        function drawVisualizer() {
+            // Minimal visualizer — subtle bottom bars
+            if (!analyserNode || !frequencyData) return;
+            analyserNode.getByteFrequencyData(frequencyData);
+            const barCount = 32;
+            const barW = W / barCount;
+            const maxBarH = H * 0.04;
+            ctx.save();
+            for (let i = 0; i < barCount; i++) {
+                const idx = Math.floor(i * frequencyData.length / barCount);
+                const val = frequencyData[idx] / 255;
+                const barH = val * maxBarH;
+                ctx.fillStyle = `rgba(0, 0, 0, ${0.03 + val * 0.06})`;
+                ctx.fillRect(i * barW, H - barH, barW - 1, barH);
+            }
+            ctx.restore();
+        }
+
+        function drawMenu() {
+            menuPulse += 0.03;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            ctx.font = '900 3rem Outfit';
+            ctx.fillStyle = '#222';
+            ctx.fillText('🎹', W / 2, H * 0.25);
+
+            ctx.font = '900 2.5rem Outfit';
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillText('PIANO TILES', W / 2, H * 0.35);
+
+            ctx.font = '400 1rem Outfit';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillText("Tap the tiles in sync with the music!", W / 2, H * 0.42);
+
+            if (!songReady) {
+                ctx.font = '700 1rem Outfit';
+                ctx.fillStyle = '#555';
+                const pct = Math.floor(loadProgress * 100);
+                ctx.fillText(`Analyzing song... ${pct}%`, W / 2, H * 0.55);
+
+                const barW = 180, barH = 6;
+                ctx.fillStyle = 'rgba(0,0,0,0.08)';
+                ctx.beginPath();
+                ctx.roundRect(W / 2 - barW / 2, H * 0.59, barW, barH, 3);
+                ctx.fill();
+                ctx.fillStyle = '#1a1a1a';
+                ctx.beginPath();
+                ctx.roundRect(W / 2 - barW / 2, H * 0.59, barW * loadProgress, barH, 3);
+                ctx.fill();
+            } else {
+                const btnY = H * 0.55;
+                const btnW = 220, btnH = 60;
+                const pulse = Math.sin(menuPulse) * 0.05 + 1;
+
+                ctx.save();
+                ctx.translate(W / 2, btnY);
+                ctx.scale(pulse, pulse);
+                ctx.shadowColor = 'rgba(0,0,0,0.2)';
+                ctx.shadowBlur = 15;
+                ctx.beginPath();
+                ctx.roundRect(-btnW / 2, -btnH / 2, btnW, btnH, 16);
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.font = '700 1.3rem Outfit';
+                ctx.fillStyle = '#fff';
+                ctx.fillText('TAP TO PLAY', 0, 2);
+                ctx.restore();
+
+                ctx.font = '400 0.8rem Outfit';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+                ctx.fillText(`♪ ${beatMap.length} beats detected ♪`, W / 2, H * 0.65);
+            }
+
+            const best = localStorage.getItem('pianotiles_best') || 0;
+            if (best > 0) {
+                ctx.font = '700 1rem Outfit';
+                ctx.fillStyle = '#e67e22';
+                ctx.fillText(`Best: ${best}`, W / 2, H * 0.75);
+            }
+
+            ctx.restore();
+        }
+
+        function drawGameOver() {
+            const alpha = Math.min(0.85, (Date.now() - gameOverTimer) / 500);
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.fillRect(0, 0, W, H);
+            if (Date.now() - gameOverTimer < 200) return;
+
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            ctx.font = '900 2.8rem Outfit';
+            ctx.fillStyle = '#ef4444';
+            ctx.fillText('GAME OVER', W / 2, H * 0.3);
+
+            ctx.font = '900 4rem Outfit';
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillText(score, W / 2, H * 0.42);
+
+            ctx.font = '400 1rem Outfit';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillText('TILES', W / 2, H * 0.48);
+
+            if (bestCombo > 5) {
+                ctx.font = '700 1.1rem Outfit';
+                ctx.fillStyle = '#e67e22';
+                ctx.fillText(`Best Combo: ${bestCombo}×`, W / 2, H * 0.55);
+            }
+
+            const best = localStorage.getItem('pianotiles_best') || 0;
+            if (score > best) {
+                localStorage.setItem('pianotiles_best', score);
+                ctx.font = '700 1.2rem Outfit';
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fillText('🎉 NEW BEST! 🎉', W / 2, H * 0.62);
+            } else {
+                ctx.font = '700 1rem Outfit';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+                ctx.fillText(`Best: ${best}`, W / 2, H * 0.62);
+            }
+
+            if (Date.now() - gameOverTimer > 1000) {
+                const a = 0.3 + Math.sin(Date.now() / 400) * 0.2;
+                ctx.font = '400 1rem Outfit';
+                ctx.fillStyle = `rgba(0, 0, 0, ${a})`;
+                ctx.fillText('Tap to restart', W / 2, H * 0.78);
+            }
+
+            ctx.restore();
+        }
+
+        // Decorative menu tiles
+        let menuTiles = [];
+        let menuTilesInit = false;
+        function initMenuTiles() {
+            menuTiles = [];
+            const n = Math.ceil(H / rowH) + 2;
+            for (let i = 0; i < n; i++) {
+                menuTiles.push({ y: i * rowH, blackCol: Math.floor(Math.random() * COLS) });
+            }
+            menuTilesInit = true;
+        }
+        function drawMenuTiles() {
+            if (!menuTilesInit) initMenuTiles();
+            for (const t of menuTiles) {
+                t.y += 0.5;
+                if (t.y > H + rowH) {
+                    t.y -= menuTiles.length * rowH;
+                    t.blackCol = Math.floor(Math.random() * COLS);
+                }
+            }
+            ctx.save();
+            ctx.globalAlpha = 0.06;
+            menuTiles.forEach(t => {
+                ctx.fillStyle = '#000';
+                ctx.fillRect(t.blackCol * colW, t.y, colW, rowH);
+            });
+            ctx.restore();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  GAME LOGIC
+        // ═══════════════════════════════════════════════════════════════════
+        function startGame() {
+            if (!songReady) return;
+            initAudio();
+
+            score = 0;
+            combo = 0;
+            bestCombo = 0;
+            particles = [];
+            failedTile = null;
+            beatPulse = 0;
+            scrollOffset = 0;
+
+            generateTileGrid();
+
+            gameState = STATE.PLAYING;
+            scoreHud.innerText = '0';
+            scoreHud.style.opacity = '1';
+            comboDisplay.style.opacity = '0';
+
+            playSong();
+        }
+
+        function endGame(tile) {
+            gameState = STATE.GAMEOVER;
+            gameOverTimer = Date.now();
+            failedTile = tile;
+            playMissSound();
+            stopSong();
+            submitScore(score);
+        }
+
+        function handleTap(x, y) {
+            if (gameState === STATE.MENU) {
+                startGame();
+                return;
+            }
+            if (gameState === STATE.GAMEOVER) {
+                if (Date.now() - gameOverTimer > 1000) gameState = STATE.MENU;
+                return;
+            }
+            if (gameState !== STATE.PLAYING) return;
+
+            const col = Math.floor(x / colW);
+            if (col < 0 || col >= COLS) return;
+
+            // Find the tile that was tapped — check by position in the grid
+            let tappedTile = null;
+
+            for (const tile of tiles) {
+                if (tile.tapped) continue;
+                const tileY = getTileY(tile.index);
+                if (tileY + rowH < 0 || tileY > H) continue;
+
+                // Is the tap within this tile's row?
+                if (y >= tileY && y < tileY + rowH) {
+                    tappedTile = tile;
+                    break;
+                }
+            }
+
+            if (!tappedTile) return;
+
+            if (col === tappedTile.blackCol) {
+                // Correct!
+                tappedTile.tapped = true;
+                tappedTile.tapScale = 1.0;
+                score++;
+                combo++;
+                if (combo > bestCombo) bestCombo = combo;
+
+                scoreHud.innerText = score;
+                scoreHud.style.transform = 'scale(1.15)';
+                setTimeout(() => scoreHud.style.transform = 'scale(1)', 100);
+
+                if (combo >= 5) {
+                    comboDisplay.innerText = `🔥 ${combo}× Combo`;
+                    comboDisplay.style.opacity = '1';
+                } else {
+                    comboDisplay.style.opacity = '0';
+                }
+
+                playTapSound(col);
+
+                const px = col * colW + colW / 2;
+                const py = getTileY(tappedTile.index) + rowH / 2;
+                const colors = ['#555', '#333', '#777', '#222'];
+                spawnParticles(px, py, colors[Math.floor(Math.random() * colors.length)], 6);
+            } else {
+                // Wrong column — game over
+                tappedTile._failCol = col;
+                endGame(tappedTile);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  MAIN LOOP
+        // ═══════════════════════════════════════════════════════════════════
+        const FIXED_DT = 1000 / 60;
+        let accumulator = 0;
+        let lastTime = 0;
+
+        let prevSongTime = 0;
+
+        function update() {
+            if (gameState !== STATE.PLAYING) return;
+
+            const songTime = getSongTime();
+            scrollOffset = getScrollOffset(songTime);
+
+            // Detect song loop — songTime jumping backward significantly
+            if (songTime < prevSongTime - 1) {
+                // Song looped, regenerate tiles
+                generateTileGrid();
+            }
+            prevSongTime = songTime;
+
+            // Animate tap scale fade
+            for (const tile of tiles) {
+                if (tile.tapped && tile.tapScale > 0) {
+                    tile.tapScale -= 0.04;
+                }
+            }
+
+            // Check for missed tiles (scrolled past the bottom)
+            for (const tile of tiles) {
+                if (tile.tapped) continue;
+                const tileY = getTileY(tile.index);
+                if (tileY > H) {
+                    combo = 0;
+                    comboDisplay.style.opacity = '0';
+                    endGame(tile);
+                    return;
+                }
+            }
+
+            // Beat pulse decay
+            if (beatPulse > 0) {
+                beatPulse -= 0.04;
+                if (beatPulse < 0) beatPulse = 0;
+            }
+
+            updateParticles();
+        }
+
+        function draw() {
+            drawBackground();
+            drawColumnLines();
+
+            if (gameState === STATE.PLAYING || gameState === STATE.GAMEOVER) {
+                drawTiles();
+                drawVisualizer();
+                drawParticles();
+            }
+
+            if (gameState === STATE.MENU) {
+                drawMenuTiles();
+                drawMenu();
+            }
+
+            if (gameState === STATE.GAMEOVER) {
+                drawGameOver();
+            }
+        }
+
+        function loop(timestamp) {
+            requestAnimationFrame(loop);
+            if (!timestamp) return;
+            if (!lastTime) lastTime = timestamp;
+            let dt = timestamp - lastTime;
+            lastTime = timestamp;
+            if (dt > 100) dt = FIXED_DT;
+            accumulator += dt;
+            while (accumulator >= FIXED_DT) {
+                update();
+                accumulator -= FIXED_DT;
+            }
+            draw();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  INPUT
+        // ═══════════════════════════════════════════════════════════════════
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                handleTap(e.changedTouches[i].clientX, e.changedTouches[i].clientY);
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('mousedown', (e) => {
+            handleTap(e.clientX, e.clientY);
+        });
+
+        document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  INIT
+        // ═══════════════════════════════════════════════════════════════════
+        loadAndAnalyzeSong();
+        requestAnimationFrame(loop);
+    </script>
+</body>
+
+</html>
