@@ -95,15 +95,22 @@
     <canvas id="gameCanvas" style="display: none;"></canvas>
 
     <script>
+        const vStr = "?v=4";
         const assets = {
             loaded: 0,
-            total: 8,
+            total: 13, // 8 images + 5 sounds
             bg: new Image(),
             base: new Image(),
             pipe: new Image(),
             bird: [new Image(), new Image(), new Image()],
             message: new Image(),
-            gameover: new Image()
+            gameover: new Image(),
+            // Sounds
+            wing: new Audio('/flappy-bird-assets/audio/wing.wav' + vStr),
+            point: new Audio('/flappy-bird-assets/audio/point.wav' + vStr),
+            hit: new Audio('/flappy-bird-assets/audio/hit.wav' + vStr),
+            die: new Audio('/flappy-bird-assets/audio/die.wav' + vStr),
+            swoosh: new Audio('/flappy-bird-assets/audio/swoosh.wav' + vStr)
         };
 
         function onAssetLoad() {
@@ -117,10 +124,11 @@
                 bird.init();
                 pipes.init();
                 currentState = STATE.START;
-                loop();
+                requestAnimationFrame(loop);
             }
         }
 
+        // Image listeners
         assets.bg.onload = onAssetLoad;
         assets.base.onload = onAssetLoad;
         assets.pipe.onload = onAssetLoad;
@@ -130,7 +138,13 @@
         assets.message.onload = onAssetLoad;
         assets.gameover.onload = onAssetLoad;
 
-        const vStr = "?v=3";
+        // Audio listeners
+        assets.wing.oncanplaythrough = onAssetLoad;
+        assets.point.oncanplaythrough = onAssetLoad;
+        assets.hit.oncanplaythrough = onAssetLoad;
+        assets.die.oncanplaythrough = onAssetLoad;
+        assets.swoosh.oncanplaythrough = onAssetLoad;
+
         assets.bg.src = '/flappy-bird-assets/sprites/background-day.png' + vStr;
         assets.base.src = '/flappy-bird-assets/sprites/base.png' + vStr;
         assets.pipe.src = '/flappy-bird-assets/sprites/pipe-green.png' + vStr;
@@ -323,6 +337,9 @@
             },
             flap() {
                 this.velocity = this.jumpStrength;
+                // Play wing sound
+                assets.wing.currentTime = 0;
+                assets.wing.play().catch(() => {});
             }
         };
 
@@ -378,6 +395,7 @@
                     if (p.x + this.width < bird.x && !p.passed) {
                         p.passed = true;
                         score++;
+                        assets.point.play().catch(() => {});
                         scoreHud.innerText = score;
                         scoreHud.style.transform = "scale(1.3)";
                         setTimeout(() => scoreHud.style.transform = "scale(1)", 150);
@@ -405,6 +423,7 @@
 
         function play() {
             score = 0;
+            assets.swoosh.play().catch(() => {});
             bird.init();
             pipes.init();
             currentState = STATE.PLAYING;
@@ -416,6 +435,10 @@
         }
 
         function die() {
+            assets.hit.play().catch(() => {});
+            setTimeout(() => {
+                assets.die.play().catch(() => {});
+            }, 100);
             currentState = STATE.GAMEOVER;
             submitScore(score);
         }
