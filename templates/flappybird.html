@@ -83,16 +83,89 @@
             opacity: 0;
             transition: opacity 0.3s;
         }
+
+        /* ===== SYNC OVERLAY ===== */
+        .sync-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+            backdrop-filter: blur(8px);
+        }
+        .sync-overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+        .sync-content {
+            text-align: center;
+            color: white;
+            animation: syncPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes syncPop {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .sync-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid #4CAF50; /* Green for Flappy */
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            animation: spin 1s linear infinite;
+        }
+        .sync-text {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+        .sync-status {
+            font-size: 0.9rem;
+            color: #ccc;
+            max-width: 240px;
+            margin: 0 auto;
+        }
+        .sync-btn {
+            margin-top: 24px;
+            padding: 10px 24px;
+            background: #4CAF50;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 700;
+            cursor: pointer;
+            display: none;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 
 <body>
 
     <div id="loading">Loading Assets...</div>
-    <div id="syncing"></div>
+    <div id="syncing" style="display:none;"></div>
     <div id="scoreHud" style="opacity: 0;">0</div>
     <div id="rankDisplay"></div>
     <canvas id="gameCanvas" style="display: none;"></canvas>
+
+    <!-- SYNC OVERLAY -->
+    <div id="sync-overlay" class="sync-overlay">
+        <div class="sync-content">
+            <div id="sync-spinner" class="sync-spinner"></div>
+            <div id="sync-text" class="sync-text">Syncing Score...</div>
+            <div id="sync-status-msg" class="sync-status">Saving your flight record to Telegram...</div>
+            <button id="sync-continue-btn" class="sync-btn" onclick="hideSyncOverlay()">Continue</button>
+        </div>
+    </div>
 
     <script>
         const vStr = "?v=4";
@@ -161,21 +234,22 @@
         const messageId = urlParams.get('message_id');
 
         async function submitScore(score) {
-            const syncingText = document.getElementById('syncing');
+            const overlay = document.getElementById('sync-overlay');
+            const statusMsg = document.getElementById('sync-status-msg');
+            const syncText = document.getElementById('sync-text');
+            const syncSpinner = document.getElementById('sync-spinner');
+            const continueBtn = document.getElementById('sync-continue-btn');
             const rankDisplay = document.getElementById('rankDisplay');
-            syncingText.style.opacity = '1';
-            syncingText.innerText = "Syncing score...";
-            syncingText.style.color = "#fff";
 
-            if (!userId) {
-                syncingText.innerText = "";
+            if (!userId || score <= 0) {
                 return;
             }
 
-            if (score <= 0) {
-                syncingText.innerText = "";
-                return;
-            }
+            // Show overlay
+            overlay.classList.add('visible');
+            statusMsg.textContent = "Connecting to Telegram...";
+            continueBtn.style.display = 'none';
+            syncSpinner.style.display = 'block';
 
             try {
                 const response = await fetch('/api/set_score', {
@@ -191,23 +265,46 @@
                 });
 
                 const data = await response.json();
-                if (response.ok) {
-                    syncingText.style.opacity = '0';
+                
+                if (response.ok && data.ok) {
+                    syncText.textContent = "Score Synced!";
+                    syncSpinner.style.display = 'none';
+                    continueBtn.style.display = 'block';
+                    
                     if (data.rank && data.rank > 0) {
+                        statusMsg.textContent = `Amazing! You are now Rank #${data.rank} in this group.`;
                         rankDisplay.innerText = "Rank #" + data.rank + " in the Group";
                         rankDisplay.style.opacity = '1';
                     } else {
+                        statusMsg.textContent = "Your new high score was successfully saved!";
                         rankDisplay.innerText = "High Score Synced! 🚀";
                         rankDisplay.style.opacity = '1';
                     }
                 } else {
-                    syncingText.innerText = "Sync failed.";
-                    syncingText.style.color = "#ff3366";
+                    // Handle specialized Telegram errors
+                    const description = data.description || '';
+                    if (description.includes('smaller') || description.includes('not modified')) {
+                        syncText.textContent = "Nice Fly!";
+                        statusMsg.textContent = "You've already got a higher score on the leaderboard. Keep practicing!";
+                        rankDisplay.innerText = "Keep going to beat your record!";
+                        rankDisplay.style.opacity = '1';
+                    } else {
+                        syncText.textContent = "Sync Partial";
+                        statusMsg.textContent = "Your score was saved locally, but we couldn't update the global leaderboard.";
+                    }
+                    syncSpinner.style.display = 'none';
+                    continueBtn.style.display = 'block';
                 }
             } catch (err) {
-                syncingText.innerText = "Network Error";
-                syncingText.style.color = "#ff3366";
+                syncText.textContent = "Network Error";
+                statusMsg.textContent = "Could not reach the server. Playing offline.";
+                syncSpinner.style.display = 'none';
+                continueBtn.style.display = 'block';
             }
+        }
+
+        function hideSyncOverlay() {
+            document.getElementById('sync-overlay').classList.remove('visible');
         }
 
         const canvas = document.getElementById('gameCanvas');

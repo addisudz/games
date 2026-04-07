@@ -413,6 +413,68 @@
             width: 0%;
             transition: width 0.15s ease;
         }
+        /* ===== SYNC OVERLAY ===== */
+        .sync-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+            backdrop-filter: blur(8px);
+        }
+        .sync-overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+        .sync-content {
+            text-align: center;
+            color: white;
+            animation: syncPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes syncPop {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .sync-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid var(--accent);
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            animation: spin 1s linear infinite;
+        }
+        .sync-text {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+        .sync-status {
+            font-size: 0.9rem;
+            color: var(--text-sub);
+            max-width: 240px;
+            margin: 0 auto;
+        }
+        .sync-btn {
+            margin-top: 24px;
+            padding: 10px 24px;
+            background: var(--accent);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 700;
+            cursor: pointer;
+            display: none;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -482,30 +544,45 @@
 <div id="result-screen" class="screen hidden">
     <h2>Results</h2>
     <div class="result-grid">
-        <div class="result-stat">
-            <div class="big" id="result-wpm">0</div>
-            <div class="label">WPM</div>
+    <div class="result-card">
+        <h2 style="font-size:2rem; margin-bottom:20px; letter-spacing:-1px;">Race Results</h2>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-label">WPM</div>
+                <div class="stat-value" id="result-wpm">0</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Accuracy</div>
+                <div class="stat-value" id="result-acc">0%</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Words</div>
+                <div class="stat-value" id="result-words">0</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Chars</div>
+                <div class="stat-value" id="result-chars">0</div>
+            </div>
         </div>
-        <div class="result-stat">
-            <div class="big" id="result-acc">0</div>
-            <div class="label">Accuracy</div>
-        </div>
-        <div class="result-stat">
-            <div class="big" id="result-words">0</div>
-            <div class="label">Words</div>
-        </div>
-        <div class="result-stat">
-            <div class="big" id="result-chars">0</div>
-            <div class="label">Chars</div>
-        </div>
-    </div>
+        
+        <div id="rank-badge"></div>
+        <div id="sync-status"></div>
 
-    <div id="rank-badge">
-        <div class="spinner"></div>
-        <div class="syncing-pulse">Syncing score...</div>
+        <div class="action-btns" style="margin-top:30px;">
+            <button class="action-btn" id="retry-btn">Try Again</button>
+            <button class="action-btn secondary" onclick="location.reload()">New Paragraph</button>
+        </div>
     </div>
-    <div id="sync-status"></div>
-    <button class="retry-btn" id="retry-btn">Play Again</button>
+</div>
+
+<!-- SYNC OVERLAY -->
+<div id="sync-overlay" class="sync-overlay">
+    <div class="sync-content">
+        <div id="sync-spinner" class="sync-spinner"></div>
+        <div id="sync-text" class="sync-text">Syncing Score...</div>
+        <div id="sync-status-msg" class="sync-status">Saving your best performance to Telegram...</div>
+        <button id="sync-continue-btn" class="sync-btn" onclick="hideSyncOverlay()">Continue</button>
+    </div>
 </div>
 
 <script>
@@ -811,22 +888,30 @@ function endGame() {
 
     showScreen('result-screen');
     
-    // Reset to loading state before submission
-    rankBadge.innerHTML = '<div class="spinner"></div><div class="syncing-pulse">Syncing score...</div>';
-    syncStatus.textContent = '';
-    
+    // Check if score submission should start
     submitScore(finalWpm, finalAcc, correctWords);
 }
 
 // ======================== SCORE SUBMISSION ========================
 async function submitScore(wpm, acc, wordsTyped) {
-    const rankBadge    = document.getElementById('rank-badge');
-    const syncStatus   = document.getElementById('sync-status');
+    const overlay = document.getElementById('sync-overlay');
+    const statusMsg = document.getElementById('sync-status-msg');
+    const syncText = document.getElementById('sync-text');
+    const syncSpinner = document.getElementById('sync-spinner');
+    const continueBtn = document.getElementById('sync-continue-btn');
+    const rankBadge = document.getElementById('rank-badge');
+    const syncStatus = document.getElementById('sync-status');
 
     if (!userId || wpm <= 0) {
-        rankBadge.innerHTML = 'Local session – no Telegram user';
+        console.log("No Telegram session or score too low");
         return;
     }
+
+    // Show overlay
+    overlay.classList.add('visible');
+    statusMsg.textContent = "Connecting to Telegram...";
+    continueBtn.style.display = 'none';
+    syncSpinner.style.display = 'block';
 
     try {
         const response = await fetch('/api/set_score', {
@@ -842,24 +927,44 @@ async function submitScore(wpm, acc, wordsTyped) {
         });
 
         const data = await response.json();
-        if (response.ok) {
+        
+        if (response.ok && data.ok) {
+            syncText.textContent = "Score Synced!";
+            syncSpinner.style.display = 'none';
+            continueBtn.style.display = 'block';
+            
             if (data.rank && data.rank > 0) {
+                statusMsg.textContent = `Amazing! You are now Rank #${data.rank} in this group.`;
                 rankBadge.innerHTML = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:4px; letter-spacing:1px;">GROUP STANDING</div><div style="font-size:1.2rem;">🏆 Rank <span>#${data.rank}</span></div>`;
             } else {
+                statusMsg.textContent = "Your new high score was successfully saved!";
                 rankBadge.innerHTML = `<div style="font-size:1.2rem;"><span>${wpm} WPM</span> submitted!</div>`;
             }
-            syncStatus.textContent = '';
-        } else if (data.description && data.description.includes('smaller')) {
-            rankBadge.innerHTML = `<div style="font-size:1.2rem;"><span>${wpm} WPM</span> — not your best</div>`;
-            syncStatus.textContent = 'Your high score is still on the board.';
         } else {
-            rankBadge.innerHTML = '<div style="color:var(--wrong);">Sync failed</div>';
-            syncStatus.textContent = data.description || 'Unknown error';
+            // Handle specialized Telegram errors
+            const description = data.description || '';
+            if (description.includes('smaller') || description.includes('not modified')) {
+                syncText.textContent = "Nice Performance!";
+                statusMsg.textContent = "You've already got a higher score on the leaderboard. Keep practicing!";
+                rankBadge.innerHTML = `<div style="font-size:1.2rem;"><span>${wpm} WPM</span> — not your best</div>`;
+                syncStatus.textContent = "Keep going to beat your record!";
+            } else {
+                syncText.textContent = "Sync Partial";
+                statusMsg.textContent = "Your score was saved locally, but we couldn't update the global leaderboard.";
+            }
+            syncSpinner.style.display = 'none';
+            continueBtn.style.display = 'block';
         }
     } catch (err) {
-        rankBadge.innerHTML = 'Network error';
-        syncStatus.textContent = String(err);
+        syncText.textContent = "Network Error";
+        statusMsg.textContent = "Could not reach the server. Playing offline.";
+        syncSpinner.style.display = 'none';
+        continueBtn.style.display = 'block';
     }
+}
+
+function hideSyncOverlay() {
+    document.getElementById('sync-overlay').classList.remove('visible');
 }
 
 // ======================== START / RESTART ========================

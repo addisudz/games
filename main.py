@@ -5097,9 +5097,13 @@ def main() -> None:
             payload["message_id"] = message_id
             
         try:
-            resp = requests.post(url, json=payload)
+            resp = requests.post(url, json=payload, timeout=10)
             res_data = resp.json()
             
+            if not res_data.get('ok'):
+                logger.warning(f"Telegram setGameScore failed: {res_data}")
+                return jsonify(res_data)
+
             # Fetch high scores to find user's position
             hs_url = f"https://api.telegram.org/bot{bot_token}/getGameHighScores"
             hs_payload = {"user_id": user_id}
@@ -5111,21 +5115,22 @@ def main() -> None:
                 
             rank = -1
             try:
-                hs_resp = requests.post(hs_url, json=hs_payload)
+                hs_resp = requests.post(hs_url, json=hs_payload, timeout=10)
                 hs_data = hs_resp.json()
                 if hs_data.get('ok'):
-                    scores = hs_data.get('result', [])
-                    for s in scores:
-                        if str(s['user']['id']) == str(user_id):
-                            rank = s['position']
+                    result = hs_data.get('result', [])
+                    for s in result:
+                        if str(s.get('user', {}).get('id')) == str(user_id):
+                            rank = s.get('position', -1)
                             break
-            except Exception:
-                pass
+            except Exception as hs_e:
+                logger.error(f"Error fetching high scores for rank: {hs_e}")
                 
             res_data['rank'] = rank
             return jsonify(res_data)
         except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            logger.error(f"Critical error in set_score: {e}")
+            return jsonify({"ok": False, "error": str(e)}), 500
 
     def run_flask():
         # Use PORT environment variable from Render, default to 8080
