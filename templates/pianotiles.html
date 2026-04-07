@@ -47,6 +47,25 @@
 
 
 
+        #progressBarContainer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: rgba(0, 0, 0, 0.05);
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        #progressBar {
+            width: 0%;
+            height: 100%;
+            background: #000;
+            transition: background 0.5s;
+        }
+
         .sync-overlay {
             position: fixed;
             inset: 0;
@@ -73,8 +92,15 @@
         }
 
         @keyframes syncPop {
-            from { transform: scale(0.8); opacity: 0; }
-            to { transform: scale(1); opacity: 1; }
+            from {
+                transform: scale(0.8);
+                opacity: 0;
+            }
+
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
         }
 
         .sync-spinner {
@@ -113,12 +139,18 @@
         }
 
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
     </style>
 </head>
 
 <body>
+
+    <div id="progressBarContainer">
+        <div id="progressBar"></div>
+    </div>
 
     <div id="scoreHud">0</div>
 
@@ -265,7 +297,7 @@
                 for (let t = 0; t < 300; t += interval) {
                     beatMap.push(t);
                 }
-                
+
                 // Try loading audio element anyway
                 try {
                     songElement = new Audio('/piano-tiles/song.mp3');
@@ -280,8 +312,8 @@
                         songElement.addEventListener('error', resolve, { once: true });
                         songElement.load();
                     });
-                } catch(e2) {}
-                
+                } catch (e2) { }
+
                 loadProgress = 1.0;
                 songReady = true;
             }
@@ -426,7 +458,18 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreHud = document.getElementById('scoreHud');
+        const progressBarContainer = document.getElementById('progressBarContainer');
+        const progressBar = document.getElementById('progressBar');
 
+        const LEVEL_COLORS = [
+            '#000000', // L1: Black
+            '#FFD700', // L2: Gold
+            '#A020F0', // L3: Purple
+            '#DC143C', // L4: Crimson
+            '#4169E1', // L5: Royal Blue
+            '#FF8C00', // L6: Orange
+            '#008B8B'  // L7+: Dark Cyan
+        ];
         let W, H;
         const COLS = 4;
         let colW, rowH;
@@ -478,17 +521,17 @@
         function generateTileGrid() {
             tiles = [];
             lastBlackCol = -1;
-            
+
             if (beatMap.length < 2) return;
 
             // 1. Find the typical (median) beat gap to establish consistent sizing
             let gaps = [];
             for (let i = 0; i < beatMap.length - 1; i++) {
-                gaps.push(beatMap[i+1] - beatMap[i]);
+                gaps.push(beatMap[i + 1] - beatMap[i]);
             }
-            gaps.sort((a,b) => a - b);
+            gaps.sort((a, b) => a - b);
             let medianGap = gaps[Math.floor(gaps.length / 2)];
-            
+
             // 2. Filter out false-positive phantom beats that create randomly short tiles
             let cleanBeats = [beatMap[0]];
             for (let i = 1; i < beatMap.length; i++) {
@@ -505,13 +548,13 @@
                 let col;
                 do {
                     col = Math.floor(Math.random() * COLS);
-                } while (col === lastBlackCol); 
+                } while (col === lastBlackCol);
                 lastBlackCol = col;
 
                 let beatStart = cleanBeats[i];
-                let beatEnd = (i < cleanBeats.length - 1) ? cleanBeats[i+1] : beatStart + avgBeatDuration;
+                let beatEnd = (i < cleanBeats.length - 1) ? cleanBeats[i + 1] : beatStart + avgBeatDuration;
                 let duration = beatEnd - beatStart;
-                
+
                 // Intentional long gap forms a hold tile
                 let isHold = duration > avgBeatDuration * 1.5;
 
@@ -607,11 +650,11 @@
         function drawTiles(songTime) {
             for (const tile of tiles) {
                 const yBottom = getTileYBottom(tile, songTime);
-                
+
                 // Normal tiles are identical in height
-                let h = rowH; 
+                let h = rowH;
                 let yTop = yBottom - rowH;
-                
+
                 if (tile.isHold) {
                     yTop = getTileYTop(tile, songTime);
                     h = Math.max(rowH, yBottom - yTop);
@@ -747,7 +790,7 @@
                 ctx.font = '900 0.9rem Outfit';
                 ctx.fillStyle = '#333';
                 ctx.fillText('LEADERBOARD', W / 2, startY - 25);
-                
+
                 ctx.font = '400 0.85rem Outfit';
                 leaderboardData.forEach((entry, idx) => {
                     const name = entry.user.first_name || "Unknown";
@@ -787,7 +830,7 @@
 
             ctx.font = '400 1rem Outfit';
             ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-            ctx.fillText('TILES tapped', W / 2, H * 0.48);
+            ctx.fillText('Score', W / 2, H * 0.48);
 
             const best = localStorage.getItem('pianotiles_best') || 0;
             if (score > best) {
@@ -878,8 +921,21 @@
             gameState = STATE.PLAYING;
             scoreHud.innerText = '0';
             scoreHud.style.opacity = '1';
+            progressBarContainer.style.opacity = '1';
+            updateProgressBarColor();
 
             playSong();
+        }
+
+        function updateProgressBarColor() {
+            const color = LEVEL_COLORS[(currentLevel - 1) % LEVEL_COLORS.length];
+            progressBar.style.backgroundColor = color;
+        }
+
+        function updateProgressBar() {
+            if (!songElement || !songElement.duration) return;
+            const prog = (songElement.currentTime / songElement.duration) * 100;
+            progressBar.style.width = Math.min(100, prog) + '%';
         }
 
         function skipLevel() {
@@ -898,6 +954,8 @@
             gameSpeed *= 1.5;
             generateTileGrid();
             gameState = STATE.PLAYING;
+            updateProgressBarColor();
+            progressBar.style.width = '0%';
             playSong();
         }
 
@@ -907,6 +965,7 @@
             failedTile = tile;
             playMissSound();
             stopSong();
+            progressBarContainer.style.opacity = '0';
             submitScore(score);
         }
 
@@ -941,7 +1000,7 @@
                 // Correctly tapped the sequence!
                 targetTile.tapped = true;
                 targetTile.tapScale = 1.0;
-                
+
                 if (targetTile.isHold) {
                     targetTile.holding = true;
                 }
@@ -955,7 +1014,7 @@
 
                 const songTime = getSongTime();
                 const px = col * colW + colW / 2;
-                const py = Math.min(getTileYBottom(targetTile, songTime) - 30, HIT_Y); 
+                const py = Math.min(getTileYBottom(targetTile, songTime) - 30, HIT_Y);
                 const colors = ['#555', '#333', '#777', '#222'];
                 spawnParticles(px, py, colors[Math.floor(Math.random() * colors.length)], 6);
             } else {
@@ -992,6 +1051,8 @@
             }
             if (gameState !== STATE.PLAYING) return;
 
+            updateProgressBar();
+
             const songTime = getSongTime();
 
             // Detect backwards song jump resetting the run (loop safety if for some reason it loops)
@@ -1013,7 +1074,7 @@
                         score++;
                         scoreHud.innerText = score;
                         tile.holdScoreTimer = 0;
-                        
+
                         const px = tile.blackCol * colW + colW / 2;
                         spawnParticles(px, HIT_Y, ['#fff', '#666'], 2);
                     }
