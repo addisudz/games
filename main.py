@@ -5006,9 +5006,10 @@ def main() -> None:
     app = Flask(__name__)
     assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "flappy-bird-assets"))
     
-    @app.route('/assets/<path:path>')
+    @app.route('/flappy-bird-assets/<path:path>')
     def serve_assets(path):
         from flask import send_from_directory
+        import os
         return send_from_directory(assets_dir, path)
 
     @app.route('/')
@@ -5047,7 +5048,32 @@ def main() -> None:
             
         try:
             resp = requests.post(url, json=payload)
-            return jsonify(resp.json())
+            res_data = resp.json()
+            
+            # Fetch high scores to find user's position
+            hs_url = f"https://api.telegram.org/bot{bot_token}/getGameHighScores"
+            hs_payload = {"user_id": user_id}
+            if inline_message_id and inline_message_id != "undefined":
+                hs_payload["inline_message_id"] = inline_message_id
+            elif chat_id and message_id and chat_id != "undefined":
+                hs_payload["chat_id"] = chat_id
+                hs_payload["message_id"] = message_id
+                
+            rank = -1
+            try:
+                hs_resp = requests.post(hs_url, json=hs_payload)
+                hs_data = hs_resp.json()
+                if hs_data.get('ok'):
+                    scores = hs_data.get('result', [])
+                    for s in scores:
+                        if str(s['user']['id']) == str(user_id):
+                            rank = s['position']
+                            break
+            except Exception:
+                pass
+                
+            res_data['rank'] = rank
+            return jsonify(res_data)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 

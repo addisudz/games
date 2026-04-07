@@ -1,19 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Flappy Bird</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@900&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --primary: #00f3ff;
-            --secondary: #bd00ff;
-            --glass-bg: rgba(20, 15, 45, 0.6);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --text: #ffffff;
-        }
-
         * {
             margin: 0;
             padding: 0;
@@ -25,9 +18,8 @@
         body {
             font-family: 'Outfit', sans-serif;
             background-color: #000;
-            color: var(--text);
             overflow: hidden;
-            touch-action: none; /* Prevent scroll on touch */
+            touch-action: none;
             width: 100vw;
             height: 100vh;
         }
@@ -38,125 +30,6 @@
             height: 100%;
         }
 
-        #ui-layer {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            pointer-events: none;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .hud {
-            position: absolute;
-            top: 10%;
-            font-size: 4rem;
-            font-weight: 900;
-            text-shadow: 0 4px 0 #000, 0 -4px 0 #000, 4px 0 0 #000, -4px 0 0 #000;
-            z-index: 10;
-            opacity: 0;
-            transition: opacity 0.3s;
-            font-family: monospace;
-        }
-
-        .screen {
-            background: var(--glass-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 40px;
-            text-align: center;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.05);
-            pointer-events: auto;
-            transform: scale(0.95);
-            opacity: 0;
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            display: none;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        .screen.active {
-            display: flex;
-            transform: scale(1);
-            opacity: 1;
-        }
-
-        h1 {
-            font-size: 2.5rem;
-            font-weight: 900;
-            background: linear-gradient(to right, var(--primary), var(--secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-
-        p {
-            color: rgba(255, 255, 255, 0.8);
-            font-size: 1.1rem;
-            line-height: 1.5;
-        }
-
-        button {
-            background: linear-gradient(45deg, var(--primary), var(--secondary));
-            border: none;
-            border-radius: 50px;
-            padding: 15px 40px;
-            font-family: inherit;
-            color: white;
-            font-size: 1.2rem;
-            font-weight: 700;
-            cursor: pointer;
-            box-shadow: 0 0 20px rgba(189, 0, 255, 0.4);
-            transition: all 0.2s;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-top: 10px;
-        }
-
-        button:active {
-            transform: scale(0.95);
-        }
-
-        .stats {
-            display: flex;
-            justify-content: space-around;
-            background: rgba(0,0,0,0.3);
-            border-radius: 16px;
-            padding: 15px;
-            margin-top: 10px;
-        }
-
-        .stat-box {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .stat-value {
-            font-size: 2rem;
-            font-weight: 900;
-            color: var(--primary);
-        }
-
-        .stat-label {
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            opacity: 0.7;
-        }
-
-        #syncing {
-            font-size: 0.9rem;
-            color: var(--primary);
-            opacity: 0;
-            transition: opacity 0.3s;
-            height: 20px;
-        }
-        
         #loading {
             position: absolute;
             top: 50%;
@@ -165,61 +38,86 @@
             font-size: 1.5rem;
             font-weight: bold;
             color: white;
+            font-family: monospace;
+        }
+
+        #scoreHud {
+            position: absolute;
+            top: 10%;
+            width: 100%;
+            text-align: center;
+            font-size: 4rem;
+            font-weight: 900;
+            color: white;
+            text-shadow: 0 4px 0 #000, 0 -4px 0 #000, 4px 0 0 #000, -4px 0 0 #000, 0 8px 10px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        #syncing {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            font-size: 1rem;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 1px 1px 2px #000;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #rankDisplay {
+            position: absolute;
+            bottom: 25%;
+            width: 100%;
+            text-align: center;
+            font-size: 1.8rem;
+            font-weight: 900;
+            color: #ffd700;
+            text-shadow: 0 3px 0 #000, 0 -3px 0 #000, 3px 0 0 #000, -3px 0 0 #000;
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
         }
     </style>
 </head>
+
 <body>
 
     <div id="loading">Loading Assets...</div>
+    <div id="syncing"></div>
+    <div id="scoreHud" style="opacity: 0;">0</div>
+    <div id="rankDisplay"></div>
     <canvas id="gameCanvas" style="display: none;"></canvas>
 
-    <div id="ui-layer" style="display: none;">
-        <div id="scoreHud" class="hud">0</div>
-
-        <!-- Start Screen -->
-        <div id="startScreen" class="screen active">
-            <h1>Flappy Bird</h1>
-            <p>Tap, click, or press Space<br>to start flying.</p>
-            <button id="startBtn">Play</button>
-        </div>
-
-        <!-- Game Over Screen -->
-        <div id="gameOverScreen" class="screen">
-            <h1>Game Over</h1>
-            <div class="stats">
-                <div class="stat-box">
-                    <span id="finalScore" class="stat-value">0</span>
-                    <span class="stat-label">Score</span>
-                </div>
-            </div>
-            <div id="syncing">Syncing to Telegram...</div>
-            <button id="restartBtn">Play Again</button>
-        </div>
-    </div>
-
     <script>
-        // --- Asset Management ---
         const assets = {
             loaded: 0,
-            total: 6,
+            total: 8,
             bg: new Image(),
             base: new Image(),
             pipe: new Image(),
-            bird: [new Image(), new Image(), new Image()]
+            bird: [new Image(), new Image(), new Image()],
+            message: new Image(),
+            gameover: new Image()
         };
 
         function onAssetLoad() {
             assets.loaded++;
-            if (assets.loaded === assets.total) { // All assets ready
+            if (assets.loaded === assets.total) {
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('gameCanvas').style.display = 'block';
-                document.getElementById('ui-layer').style.display = 'flex';
+                document.getElementById('scoreHud').style.opacity = '0';
                 resize();
                 bg.init();
                 bird.init();
                 pipes.init();
-                setUI();
-                loop(); 
+                currentState = STATE.START;
+                loop();
             }
         }
 
@@ -229,34 +127,39 @@
         assets.bird[0].onload = onAssetLoad;
         assets.bird[1].onload = onAssetLoad;
         assets.bird[2].onload = onAssetLoad;
+        assets.message.onload = onAssetLoad;
+        assets.gameover.onload = onAssetLoad;
 
-        assets.bg.src = '/assets/sprites/background-day.png';
-        assets.base.src = '/assets/sprites/base.png';
-        assets.pipe.src = '/assets/sprites/pipe-green.png';
-        assets.bird[0].src = '/assets/sprites/yellowbird-downflap.png';
-        assets.bird[1].src = '/assets/sprites/yellowbird-midflap.png';
-        assets.bird[2].src = '/assets/sprites/yellowbird-upflap.png';
+        const vStr = "?v=3";
+        assets.bg.src = '/flappy-bird-assets/sprites/background-day.png' + vStr;
+        assets.base.src = '/flappy-bird-assets/sprites/base.png' + vStr;
+        assets.pipe.src = '/flappy-bird-assets/sprites/pipe-green.png' + vStr;
+        assets.bird[0].src = '/flappy-bird-assets/sprites/yellowbird-downflap.png' + vStr;
+        assets.bird[1].src = '/flappy-bird-assets/sprites/yellowbird-midflap.png' + vStr;
+        assets.bird[2].src = '/flappy-bird-assets/sprites/yellowbird-upflap.png' + vStr;
+        assets.message.src = '/flappy-bird-assets/sprites/message.png' + vStr;
+        assets.gameover.src = '/flappy-bird-assets/sprites/gameover.png' + vStr;
 
-        // --- Telegram Integration Setup ---
         const urlParams = new URLSearchParams(window.location.search);
         const userId = urlParams.get('user_id');
         const inlineMessageId = urlParams.get('inline_message_id');
         const chatId = urlParams.get('chat_id');
         const messageId = urlParams.get('message_id');
-        
+
         async function submitScore(score) {
             const syncingText = document.getElementById('syncing');
+            const rankDisplay = document.getElementById('rankDisplay');
             syncingText.style.opacity = '1';
-            syncingText.innerText = "Syncing to Telegram...";
-            syncingText.style.color = "var(--primary)";
+            syncingText.innerText = "Syncing score...";
+            syncingText.style.color = "#fff";
 
             if (!userId) {
-                syncingText.innerText = "Local play (No User ID)";
+                syncingText.innerText = "";
                 return;
             }
 
             if (score <= 0) {
-                syncingText.innerText = "Score 0 not synced.";
+                syncingText.innerText = "";
                 return;
             }
 
@@ -272,58 +175,53 @@
                         message_id: messageId
                     })
                 });
-                
+
                 const data = await response.json();
                 if (response.ok) {
-                    syncingText.innerText = "Synced successfully!";
-                    syncingText.style.color = "#00ff88";
+                    syncingText.style.opacity = '0';
+                    if (data.rank && data.rank > 0) {
+                        rankDisplay.innerText = "Rank #" + data.rank + " in the Group";
+                        rankDisplay.style.opacity = '1';
+                    } else {
+                        rankDisplay.innerText = "High Score Synced! 🚀";
+                        rankDisplay.style.opacity = '1';
+                    }
                 } else {
                     syncingText.innerText = "Sync failed.";
                     syncingText.style.color = "#ff3366";
-                    console.error("Score submission error:", data);
                 }
             } catch (err) {
                 syncingText.innerText = "Network Error";
                 syncingText.style.color = "#ff3366";
-                console.error("Fetch error:", err);
             }
         }
 
-        // --- Game Setup ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        
+        const scoreHud = document.getElementById('scoreHud');
+        const rankDisplay = document.getElementById('rankDisplay');
+
         let width, height;
         let scale = 1;
-        let bScale = 1; // background scale
-        let baseHeight = 112; 
-        
+        let bScale = 1;
+        let baseHeight = 112;
+
         function resize() {
             width = window.innerWidth;
             height = window.innerHeight;
             canvas.width = width;
             canvas.height = height;
-            // Native bg is 512px height
             bScale = height / 512;
-            scale = Math.min(width / 300, height / 600); 
+            scale = Math.min(width / 300, height / 600);
             baseHeight = 112 * bScale;
         }
         window.addEventListener('resize', resize);
 
-        // Game State Engine
         const STATE = { START: 0, PLAYING: 1, GAMEOVER: 2 };
         let currentState = STATE.START;
-
-        // UI Elements
-        const startScreen = document.getElementById('startScreen');
-        const gameOverScreen = document.getElementById('gameOverScreen');
-        const scoreHud = document.getElementById('scoreHud');
-        const finalScoreLabel = document.getElementById('finalScore');
-        
         let frames = 0;
         let score = 0;
 
-        // --- Entities ---
         const bg = {
             x: 0,
             init() { this.x = 0; },
@@ -331,7 +229,6 @@
                 let scaledW = 288 * bScale;
                 let count = Math.ceil(width / scaledW) + 1;
                 for (let i = 0; i < count; i++) {
-                    // +1px to avoid tile seams
                     ctx.drawImage(assets.bg, this.x + i * scaledW, 0, scaledW + 1, height);
                 }
             },
@@ -359,7 +256,7 @@
             update() {
                 if (currentState !== STATE.PLAYING) return;
                 let scaledW = 336 * bScale;
-                this.x -= pipes.dx; // Ensure floor matches pipe speed
+                this.x -= pipes.dx;
                 if (this.x <= -scaledW) {
                     this.x += scaledW;
                 }
@@ -382,52 +279,42 @@
             draw() {
                 ctx.save();
                 ctx.translate(this.x, this.y);
-                
-                // Rotation
                 if (currentState === STATE.PLAYING || currentState === STATE.GAMEOVER) {
                     this.rotation = Math.min(Math.PI / 2, Math.max(-Math.PI / 6, (this.velocity * 0.1)));
                 } else {
                     this.rotation = 0;
                 }
                 ctx.rotate(this.rotation);
-                
-                // Bird image selection
-                let bImg = assets.bird[1]; // default midflap
+
+                let bImg = assets.bird[1];
                 if (currentState === STATE.PLAYING) {
-                    // Flap animation depending on frames
                     if (this.velocity < 0) {
                         bImg = assets.bird[Math.floor(frames / 4) % 3];
                     } else {
-                        // Gliding downwards
                         bImg = assets.bird[1];
                     }
                 } else if (currentState === STATE.GAMEOVER) {
                     bImg = assets.bird[1];
                 } else {
-                    // Hover flap
                     bImg = assets.bird[Math.floor(frames / 8) % 3];
                 }
-                
+
                 let bw = 34 * scale * 1.5;
                 let bh = 24 * scale * 1.5;
-                
-                ctx.drawImage(bImg, -bw/2, -bh/2, bw, bh);
+                ctx.drawImage(bImg, -bw / 2, -bh / 2, bw, bh);
                 ctx.restore();
             },
             update() {
                 if (currentState === STATE.START) {
-                    // Hover effect
                     this.y = (height / 2) + Math.cos(frames / 15) * 10;
                 } else {
                     this.velocity += this.gravity * (scale * 1400 / height);
                     this.y += this.velocity * (scale * 1400 / height);
 
-                    // Floor collision (hitting the base)
                     if (this.y + this.radius * scale >= height - baseHeight) {
                         this.y = height - baseHeight - this.radius * scale;
-                        if(currentState === STATE.PLAYING) die();
+                        if (currentState === STATE.PLAYING) die();
                     }
-                    // Ceiling collision
                     if (this.y - this.radius * scale <= 0) {
                         this.y = this.radius * scale;
                         this.velocity = 0;
@@ -446,30 +333,24 @@
             dx: 3.5,
             init() {
                 this.items = [];
-                this.gap = 180 * scale; 
+                this.gap = 180 * scale;
                 this.width = 52 * scale * 1.3;
                 this.dx = 3.5 * scale;
             },
             draw() {
                 this.items.forEach(p => {
                     let pw = this.width;
-                    let ph = 320 * scale * 1.5; // Very tall to fill screen up/down
-                    
-                    // Top pipe (inverted)
+                    let ph = 320 * scale * 1.5;
                     ctx.save();
                     ctx.translate(p.x, p.topHeight);
                     ctx.scale(1, -1);
                     ctx.drawImage(assets.pipe, 0, 0, pw, ph);
                     ctx.restore();
-                    
-                    // Bottom pipe
                     ctx.drawImage(assets.pipe, p.x, p.topHeight + this.gap, pw, ph);
                 });
             },
             update() {
                 if (currentState !== STATE.PLAYING) return;
-                
-                // Spawn new pipe
                 if (frames % Math.max(60, Math.floor(90 / scale)) === 0) {
                     let minHeight = 50 * scale;
                     let maxHeight = height - baseHeight - this.gap - minHeight;
@@ -480,23 +361,20 @@
                         passed: false
                     });
                 }
-                
-                for(let i=0; i<this.items.length; i++) {
+
+                for (let i = 0; i < this.items.length; i++) {
                     let p = this.items[i];
                     p.x -= this.dx;
-
-                    // Collision detection
                     let bx = bird.x;
                     let by = bird.y;
-                    let br = bird.radius * scale - 4; // collision radius
-                    
+                    let br = bird.radius * scale - 4;
+
                     if (bx + br > p.x && bx - br < p.x + this.width) {
                         if (by - br < p.topHeight || by + br > p.topHeight + this.gap) {
                             die();
                         }
                     }
 
-                    // Score point
                     if (p.x + this.width < bird.x && !p.passed) {
                         p.passed = true;
                         score++;
@@ -504,8 +382,7 @@
                         scoreHud.style.transform = "scale(1.3)";
                         setTimeout(() => scoreHud.style.transform = "scale(1)", 150);
                     }
-                    
-                    // Remove off-screen pipes
+
                     if (p.x + this.width < 0) {
                         this.items.shift();
                         i--;
@@ -514,22 +391,15 @@
             }
         };
 
-        // --- Core Functions ---
-        function setUI() {
-            startScreen.classList.remove('active');
-            gameOverScreen.classList.remove('active');
-            scoreHud.style.opacity = '0';
-            
+        function drawUI() {
             if (currentState === STATE.START) {
-                startScreen.classList.add('active');
-            } else if (currentState === STATE.PLAYING) {
-                scoreHud.style.opacity = '1';
-                scoreHud.innerText = score;
+                let msgW = 184 * scale * 1.2;
+                let msgH = 267 * scale * 1.2;
+                ctx.drawImage(assets.message, (width - msgW) / 2, (height - msgH) / 2, msgW, msgH);
             } else if (currentState === STATE.GAMEOVER) {
-                gameOverScreen.classList.add('active');
-                finalScoreLabel.innerText = score;
-                document.getElementById('syncing').style.opacity = '0'; 
-                submitScore(score);
+                let goW = 192 * scale * 1.5;
+                let goH = 42 * scale * 1.5;
+                ctx.drawImage(assets.gameover, (width - goW) / 2, height * 0.25, goW, goH);
             }
         }
 
@@ -538,69 +408,79 @@
             bird.init();
             pipes.init();
             currentState = STATE.PLAYING;
-            scoreHud.style.transform = "scale(1)";
-            setUI();
+            scoreHud.innerText = score;
+            scoreHud.style.opacity = '1';
+            rankDisplay.style.opacity = '0';
+            document.getElementById('syncing').style.opacity = '0';
             bird.flap();
         }
 
         function die() {
             currentState = STATE.GAMEOVER;
-            setUI();
+            submitScore(score);
         }
 
-        // --- Inputs ---
         function action() {
             if (currentState === STATE.START) {
                 play();
             } else if (currentState === STATE.PLAYING) {
                 bird.flap();
+            } else if (currentState === STATE.GAMEOVER) {
+                // Ignore fast taps that would immediately restart the game. Require intentional click.
+                // Or just allow restarting anywhere on game over.
+                // Let's add a small delay to prevent instantly restarting if they were tapping fast when they died.
             }
         }
 
-        // Mouse & Touch bindings over canvas
-        canvas.addEventListener('mousedown', action);
-        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); action(); }, {passive: false});
-        window.addEventListener('keydown', (e) => {
-            if(e.code === 'Space' || e.code === 'ArrowUp') {
-                e.preventDefault();
+        let deathTime = 0;
+        function restartAction() {
+            if (currentState === STATE.GAMEOVER) {
+                if (Date.now() - deathTime > 500) {
+                    currentState = STATE.START;
+                    scoreHud.style.opacity = '0';
+                    rankDisplay.style.opacity = '0';
+                    document.getElementById('syncing').style.opacity = '0';
+                }
+            } else {
                 action();
             }
-        });
+        }
 
-        // UI Buttons
-        document.getElementById('startBtn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            if(currentState === STATE.START) play();
-        });
-        document.getElementById('restartBtn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            if(currentState === STATE.GAMEOVER) {
-                currentState = STATE.START;
-                setUI();
+        const originalDie = die;
+        die = function () {
+            originalDie();
+            deathTime = Date.now();
+        }
+
+        canvas.addEventListener('mousedown', restartAction);
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); restartAction(); }, { passive: false });
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                e.preventDefault();
+                restartAction();
             }
         });
 
-
-        // --- Render Loop ---
         function loop() {
             ctx.clearRect(0, 0, width, height);
 
             bg.draw();
             bg.update();
-            
             pipes.draw();
             pipes.update();
-            
             base.draw();
             base.update();
 
             bird.draw();
             bird.update();
-            
+
+            drawUI();
+
             frames++;
             requestAnimationFrame(loop);
         }
 
     </script>
 </body>
+
 </html>
