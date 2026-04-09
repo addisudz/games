@@ -76,15 +76,14 @@
         }
 
         #board {
-            width: min(90vw, 70vh);
-            height: min(90vw, 70vh);
+            width: 95vw;
             max-width: 400px;
-            max-height: 400px;
+            aspect-ratio: 8 / 10;
             background: var(--board-bg);
             border-radius: 12px;
             display: grid;
             grid-template-columns: repeat(8, 1fr);
-            grid-template-rows: repeat(8, 1fr);
+            grid-template-rows: repeat(10, 1fr);
             gap: 2px;
             padding: 4px;
             position: relative;
@@ -104,7 +103,7 @@
 
         .candy {
             width: 8.5%;
-            height: 8.5%;
+            aspect-ratio: 1 / 1; 
             background-size: contain;
             background-position: center;
             background-repeat: no-repeat;
@@ -211,19 +210,24 @@
             100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 0; }
         }
 
-        /* SYNC */
-        .sync-overlay {
-            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 10000;
-            display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
+        /* SYNC & LOADING OVERLAYS */
+        .sync-overlay, .loading-screen {
+            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.9); z-index: 10000;
+            display: flex; align-items: center; justify-content: center; transition: opacity 0.4s ease;
         }
+        .sync-overlay { opacity: 0; pointer-events: none; }
         .sync-overlay.visible { opacity: 1; pointer-events: all; }
-        .sync-content { text-align: center; color: white; animation: syncPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .loading-screen { opacity: 1; pointer-events: all; z-index: 20000; }
+        .loading-screen.hidden { opacity: 0; pointer-events: none; }
+        
+        .sync-content, .loading-content { text-align: center; color: white; animation: syncPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         @keyframes syncPop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .sync-spinner {
+        
+        .sync-spinner, .loading-spinner {
             width: 50px; height: 50px; border: 4px solid rgba(255, 255, 255, 0.1); border-top: 4px solid var(--accent);
             border-radius: 50%; margin: 0 auto; animation: spin 1s linear infinite;
         }
-        .sync-status { margin-top: 16px; font-size: 1.2rem; font-weight: 700; color: var(--accent); font-family: 'Nunito', sans-serif; }
+        .sync-status, .loading-status { margin-top: 16px; font-size: 1.2rem; font-weight: 700; color: var(--accent); font-family: 'Nunito', sans-serif; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
         /* Laser animations */
@@ -279,7 +283,14 @@
     <div id="sync-overlay" class="sync-overlay">
         <div class="sync-content">
             <div id="sync-spinner" class="sync-spinner"></div>
-            <div id="sync-status-msg" class="sync-status">Syncing score...</div>
+            <!-- Text removed per request -->
+        </div>
+    </div>
+
+    <div id="boot-loader" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-status">LOADING...</div>
         </div>
     </div>
 
@@ -314,7 +325,7 @@ const chatId = urlParams.get('chat_id');
 const messageId = urlParams.get('message_id');
 
 // ======================== STATE ========================
-const width = 8, height = 8;
+const width = 8, height = 10;
 const baseColors = ['blue', 'green', 'orange', 'purple', 'red', 'yellow'];
 let board = [];
 let score = 0;
@@ -396,8 +407,9 @@ function updateCandyPositions() {
         for (let c = 0; c < width; c++) {
             if (board[r][c] && board[r][c].candy) {
                 let candy = board[r][c].candy;
-                candy.style.top = `${4 + r * cellHeight + (rect.height * 0.02)}px`;
-                candy.style.left = `${4 + c * cellWidth + (rect.width * 0.02)}px`;
+                // Shifted slightly to the top-left (reduced from 0.02 to 0.015)
+                candy.style.top = `${4 + r * cellHeight + (rect.width * 0.015)}px`;
+                candy.style.left = `${4 + c * cellWidth + (rect.width * 0.015)}px`;
                 candy.dataset.r = r; candy.dataset.c = c;
             }
         }
@@ -407,24 +419,50 @@ window.addEventListener('resize', () => setTimeout(updateCandyPositions, 100));
 
 // ======================== INTERACTION ========================
 
+let touchStartX = 0;
+let touchStartY = 0;
+
 function onPointerDown(e) {
     if (isAnimating) return;
     let candy = e.target;
-    let r = parseInt(candy.dataset.r), c = parseInt(candy.dataset.c);
-
-    if (selectedCandy) {
-        let sr = parseInt(selectedCandy.dataset.r), sc = parseInt(selectedCandy.dataset.c);
-        selectedCandy.classList.remove('selected');
-        
-        let isAdjacent = (Math.abs(sr - r) + Math.abs(sc - c)) === 1;
-        if (isAdjacent) swapCandies(sr, sc, r, c);
-        else {
-            selectedCandy = candy; candy.classList.add('selected');
-        }
-    } else {
-        selectedCandy = candy; candy.classList.add('selected');
-    }
+    selectedCandy = candy;
+    candy.classList.add('selected');
+    touchStartX = e.clientX;
+    touchStartY = e.clientY;
+    e.preventDefault(); // prevent default dragging
 }
+
+window.addEventListener('pointerup', (e) => {
+    if (!selectedCandy || isAnimating) return;
+    
+    let diffX = e.clientX - touchStartX;
+    let diffY = e.clientY - touchStartY;
+    
+    selectedCandy.classList.remove('selected');
+    
+    let r = parseInt(selectedCandy.dataset.r);
+    let c = parseInt(selectedCandy.dataset.c);
+    let targetR = r;
+    let targetC = c;
+    
+    // Swipe threshold
+    if (Math.abs(diffX) > 20 || Math.abs(diffY) > 20) {
+        if (Math.abs(diffX) > Math.abs(diffY)) {
+            // Horizontal Swipe
+            if (diffX > 0) targetC++; else targetC--;
+        } else {
+            // Vertical Swipe
+            if (diffY > 0) targetR++; else targetR--;
+        }
+        
+        // Bounds check
+        if (targetR >= 0 && targetR < height && targetC >= 0 && targetC < width) {
+            swapCandies(r, c, targetR, targetC);
+        }
+    }
+    
+    selectedCandy = null;
+});
 
 async function swapCandies(r1, c1, r2, c2) {
     isAnimating = true; selectedCandy = null;
@@ -798,7 +836,7 @@ async function processCascade() {
             candy.style.top = `-50px`; 
             let rect = boardElement.getBoundingClientRect();
             let cw = rect.width / width;
-            candy.style.left = `${4 + c * cw + (rect.width * 0.02)}px`;
+            candy.style.left = `${4 + c * cw + (rect.width * 0.015)}px`;
             
             boardElement.appendChild(candy);
             board[r][c] = { candy: candy, color: color, type: 'normal' };
@@ -895,6 +933,11 @@ document.addEventListener('pointerdown', () => {
     if (!currentMusic) switchMusic('mus-intro');
 }, { once: true });
 
+// Boot loader exit
+window.addEventListener('load', () => {
+    document.getElementById('boot-loader').classList.add('hidden');
+});
+
 // ======================== LIFECYCLE ========================
 
 function startGame() {
@@ -979,8 +1022,7 @@ function renderLeaderboard(data) {
     });
 }
 
-function showSyncOverlay(msg = "Syncing score...") {
-    document.getElementById("sync-status-msg").innerText = msg;
+function showSyncOverlay(msg = "") {
     document.getElementById("sync-spinner").style.display = "block";
     document.getElementById("sync-overlay").classList.add("visible");
 }
