@@ -4613,6 +4613,13 @@ async def pianotiles_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         game_short_name="pianotiles"
     )
 
+async def candycrush_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the Candy Crush game into the chat."""
+    await context.bot.send_game(
+        chat_id=update.effective_chat.id,
+        game_short_name="candycrush"
+    )
+
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /leaderboard command to show the group leaderboard."""
@@ -5008,6 +5015,20 @@ async def handle_game_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
+    if getattr(query, 'game_short_name', None) == "candycrush":
+        base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://candycrush-test.example.com"
+        game_url = f"{base_url}/candycrush?user_id={query.from_user.id}"
+        if query.inline_message_id:
+            game_url += f"&inline_message_id={query.inline_message_id}"
+        else:
+            if query.message:
+                game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
+        await context.bot.answer_callback_query(
+            callback_query_id=query.id,
+            url=game_url
+        )
+        return
+
 def main() -> None:
     """Start the bot."""
     # Get bot token from environment
@@ -5036,6 +5057,7 @@ def main() -> None:
     application.add_handler(CommandHandler("typerace", typerace_command))
     application.add_handler(CommandHandler("tilepuzzle", tilepuzzle_command))
     application.add_handler(CommandHandler("pianotiles", pianotiles_command))
+    application.add_handler(CommandHandler("candycrush", candycrush_command))
     application.add_handler(CommandHandler("extend", extend_command))
     application.add_handler(CommandHandler("leaderboard", leaderboard_command))
     application.add_handler(CommandHandler("settings", settings_command))
@@ -5070,6 +5092,7 @@ def main() -> None:
     app = Flask(__name__)
     assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "flappy-bird-assets"))
     piano_assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "piano-tiles"))
+    candycrush_assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "candy-crush"))
     
     @app.route('/flappy-bird-assets/<path:path>')
     def serve_assets(path):
@@ -5081,6 +5104,11 @@ def main() -> None:
     def serve_piano_assets(path):
         from flask import send_from_directory
         return send_from_directory(piano_assets_dir, path)
+
+    @app.route('/candy-crush/<path:path>')
+    def serve_candycrush_assets(path):
+        from flask import send_from_directory
+        return send_from_directory(candycrush_assets_dir, path)
 
     @app.route('/')
     def health_check():
@@ -5101,6 +5129,10 @@ def main() -> None:
     @app.route('/pianotiles')
     def pianotiles():
         return render_template('pianotiles.html')
+
+    @app.route('/candycrush')
+    def candycrush():
+        return render_template('candycrush.html')
 
     @app.route('/api/set_score', methods=['POST'])
     def set_score():
