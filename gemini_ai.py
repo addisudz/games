@@ -90,7 +90,7 @@ class GeminiAI:
 
     async def get_savage_response(self, user_text: str) -> str:
         if not self.model:
-            return "I'd roast you, but I don't even have an API key. Consider yourself lucky."
+            return
 
         for _ in range(len(self.api_keys)):
             try:
