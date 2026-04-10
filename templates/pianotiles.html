@@ -168,6 +168,7 @@
         // ═══════════════════════════════════════════════════════════════════
         //  TELEGRAM
         // ═══════════════════════════════════════════════════════════════════
+        const urlParams = new URLSearchParams(window.location.search);
         const userId = urlParams.get('user_id');
         const inlineMessageId = urlParams.get('inline_message_id');
         const chatId = urlParams.get('chat_id');
@@ -206,6 +207,9 @@
                 console.error("Leaderboard fetch failed:", err);
             }
         }
+
+        // Fetch on load
+        fetchLeaderboard();
 
         async function submitScore(sc, silent = false) {
             const overlay = document.getElementById('sync-overlay');
