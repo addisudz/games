@@ -318,11 +318,15 @@
 
 <script>
 // ======================== PARAMS ========================
+(function() {
 const urlParams = new URLSearchParams(window.location.search);
 const userId = urlParams.get('user_id');
 const inlineMessageId = urlParams.get('inline_message_id');
 const chatId = urlParams.get('chat_id');
 const messageId = urlParams.get('message_id');
+const vToken = urlParams.get('v_token');
+window._tgData = { userId, inlineMessageId, chatId, messageId, vToken };
+})();
 const vToken = urlParams.get('v_token');
 
 // ======================== STATE ========================
@@ -972,54 +976,57 @@ async function endGame() {
     document.getElementById('game-over-screen').classList.remove('hidden');
 }
 
-async function computeSignature(score, token) {
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(token);
-    const scoreData = encoder.encode(score.toString());
-    const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const signature = await crypto.subtle.sign('HMAC', key, scoreData);
-    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
+// ============================================================
+//  SCORE SYNC (HARDENED)
+// ============================================================
+(function() {
+    const { userId, inlineMessageId, chatId, messageId, vToken } = window._tgData;
+    delete window._tgData;
+
+    async function computeSignature(score, token) {
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(token);
+        // Obfuscation salt - must match backend
+        const s = "X7h9" + "_" + "P2q" + "_" + "K4v";
+        const scoreData = encoder.encode(s + ":" + score.toString());
+        const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const signature = await crypto.subtle.sign('HMAC', key, scoreData);
+        return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function performFullSync() {
+        if (!userId || (!inlineMessageId && !chatId) || !vToken) {
+            renderLeaderboard([{ position: 1, user: {first_name: "Player 1"}, score: 5000 }, { position: 2, user: {first_name: "You"}, score: (typeof score !== 'undefined' ? score : 0) }]);
+            return;
+        }
+
+        try {
+            const currentScore = (typeof score !== 'undefined' ? score : 0);
+            const scoreSig = await computeSignature(currentScore, vToken);
+            const payload = { 
+                user_id: parseInt(userId), 
+                score: currentScore,
+                v_token: vToken,
+                score_sig: scoreSig
+            };
+            if (inlineMessageId) payload.inline_message_id = inlineMessageId;
+            if (chatId && messageId) { payload.chat_id = parseInt(chatId); payload.message_id = parseInt(messageId); }
+            
+            await fetch('/api/set_score', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const lbResp = await fetch('/api/get_leaderboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (lbResp.ok) {
+                const lbData = await lbResp.json();
+                if (lbData.ok) renderLeaderboard(lbData.result);
+            }
+        } catch (e) {
+            console.error("Sync failed", e);
+        }
+    }
+    window._performFullSync = performFullSync;
+})();
 
 async function performFullSync() {
-    if (!userId || (!inlineMessageId && !chatId) || !vToken) {
-        // Local testing mock
-        renderLeaderboard([{ position: 1, user: {first_name: "Player 1"}, score: 5000 }, { position: 2, user: {first_name: "You"}, score: score }]);
-        return;
-    }
-
-    try {
-        const scoreSig = await computeSignature(score, vToken);
-        // 1. Save Score
-        const payload = { 
-            user_id: parseInt(userId), 
-            score: score,
-            v_token: vToken,
-            score_sig: scoreSig
-        };
-        if (inlineMessageId) payload.inline_message_id = inlineMessageId;
-        if (chatId && messageId) { payload.chat_id = parseInt(chatId); payload.message_id = parseInt(messageId); }
-        
-        await fetch('/api/set_score', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify(payload) 
-        });
-
-        // 2. Fetch Leaderboard
-        const lbResp = await fetch('/api/get_leaderboard', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        
-        if (lbResp.ok) {
-            const lbData = await lbResp.json();
-            if (lbData.ok) renderLeaderboard(lbData.result);
-        }
-    } catch (e) {
-        console.error("Sync failed", e);
-    }
+    if (window._performFullSync) await window._performFullSync();
 }
 
 function renderLeaderboard(data) {

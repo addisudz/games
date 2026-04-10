@@ -160,98 +160,116 @@
         <div class="sync-content">
             <div id="sync-spinner" class="sync-spinner"></div>
             <div id="sync-status-msg" class="sync-status"></div>
-            <button id="sync-continue-btn" class="sync-btn" onclick="hideSyncOverlay()">Continue</button>
+            <button id="sync-continue-btn" class="sync-btn">Continue</button>
         </div>
     </div>
 
     <script>
         // ═══════════════════════════════════════════════════════════════════
-        //  TELEGRAM
+        //  TELEGRAM (HARDENED)
         // ═══════════════════════════════════════════════════════════════════
-        const urlParams = new URLSearchParams(window.location.search);
-        const userId = urlParams.get('user_id');
-        const inlineMessageId = urlParams.get('inline_message_id');
-        const chatId = urlParams.get('chat_id');
-        const messageId = urlParams.get('message_id');
-        const vToken = urlParams.get('v_token');
+        (function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const userId = urlParams.get('user_id');
+            const inlineMessageId = urlParams.get('inline_message_id');
+            const chatId = urlParams.get('chat_id');
+            const messageId = urlParams.get('message_id');
+            const vToken = urlParams.get('v_token');
 
-        async function computeSignature(score, token) {
-            const encoder = new TextEncoder();
-            const keyData = encoder.encode(token);
-            const scoreData = encoder.encode(score.toString());
-            const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-            const signature = await crypto.subtle.sign('HMAC', key, scoreData);
-            return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-
-        async function fetchLeaderboard() {
-            if (!userId) return;
-            try {
-                const response = await fetch('/api/get_leaderboard', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        user_id: userId,
-                        inline_message_id: inlineMessageId,
-                        chat_id: chatId,
-                        message_id: messageId,
-                        v_token: vToken // Optional for leaderboard but good to have
-                    })
-                });
-                const data = await response.json();
-                if (data.ok) {
-                    leaderboardData = data.leaderboard || [];
-                    userRank = data.user_rank;
-                }
-            } catch (err) {
-                console.error("Leaderboard fetch failed:", err);
-            }
-        }
-
-        // Fetch on load
-        fetchLeaderboard();
-
-        async function submitScore(sc, silent = false) {
-            const overlay = document.getElementById('sync-overlay');
-            const statusMsg = document.getElementById('sync-status-msg');
-            const syncSpinner = document.getElementById('sync-spinner');
-            const continueBtn = document.getElementById('sync-continue-btn');
-            if (!userId || sc <= 0 || !vToken) return;
-
-            if (!silent) {
-                overlay.classList.add('visible');
-                statusMsg.textContent = "";
-                continueBtn.style.display = 'none';
-                syncSpinner.style.display = 'block';
+            async function computeSignature(score, token) {
+                const encoder = new TextEncoder();
+                const keyData = encoder.encode(token);
+                // Obfuscation salt - must match backend
+                const s = "X7h9" + "_" + "P2q" + "_" + "K4v";
+                const scoreData = encoder.encode(s + ":" + score.toString());
+                const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+                const signature = await crypto.subtle.sign('HMAC', key, scoreData);
+                return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
             }
 
-            try {
-                const scoreSig = await computeSignature(sc, vToken);
-                const response = await fetch('/api/set_score', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        user_id: userId, 
-                        score: sc,
-                        inline_message_id: inlineMessageId,
-                        chat_id: chatId, 
-                        message_id: messageId,
-                        v_token: vToken,
-                        score_sig: scoreSig
-                    })
-                });
-                const data = await response.json();
-                if (response.ok && data.ok) {
-                    fetchLeaderboard(); // Refresh leaderboard data
-                    if (!silent) {
-                        if (data.rank && data.rank > 0) {
-                            syncSpinner.style.display = 'none';
-                            statusMsg.textContent = "RANK #" + data.rank;
-                            continueBtn.style.display = 'block';
-                        } else { hideSyncOverlay(); }
+            async function fetchLeaderboard() {
+                if (!userId) return;
+                try {
+                    const response = await fetch('/api/get_leaderboard', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            user_id: userId,
+                            inline_message_id: inlineMessageId,
+                            chat_id: chatId,
+                            message_id: messageId,
+                            v_token: vToken
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.ok) {
+                        leaderboardData = data.leaderboard || [];
+                        userRank = data.user_rank;
                     }
-                } else { if (!silent) hideSyncOverlay(); }
-            } catch (err) { if (!silent) hideSyncOverlay(); }
+                } catch (err) {
+                    console.error("Leaderboard fetch failed:", err);
+                }
+            }
+
+            async function submitScore(sc, silent = false) {
+                const overlay = document.getElementById('sync-overlay');
+                const statusMsg = document.getElementById('sync-status-msg');
+                const syncSpinner = document.getElementById('sync-spinner');
+                const continueBtn = document.getElementById('sync-continue-btn');
+                if (!userId || sc <= 0 || !vToken) return;
+
+                if (!silent) {
+                    overlay.classList.add('visible');
+                    statusMsg.textContent = "";
+                    continueBtn.style.display = 'none';
+                    syncSpinner.style.display = 'block';
+                }
+
+                try {
+                    const scoreSig = await computeSignature(sc, vToken);
+                    const response = await fetch('/api/set_score', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            user_id: userId, 
+                            score: sc,
+                            inline_message_id: inlineMessageId,
+                            chat_id: chatId, 
+                            message_id: messageId,
+                            v_token: vToken,
+                            score_sig: scoreSig
+                        })
+                    });
+                    const data = await response.json();
+                    if (response.ok && data.ok) {
+                        fetchLeaderboard(); // Refresh leaderboard data
+                        if (!silent) {
+                            if (data.rank && data.rank > 0) {
+                                syncSpinner.style.display = 'none';
+                                statusMsg.textContent = "RANK #" + data.rank;
+                                continueBtn.style.display = 'block';
+                            } else { hideSyncOverlay(); }
+                        }
+                    } else { if (!silent) hideSyncOverlay(); }
+                } catch (err) { if (!silent) hideSyncOverlay(); }
+            }
+
+            function hideSyncOverlay() {
+                document.getElementById('sync-overlay').classList.remove('visible');
+            }
+
+            document.getElementById('sync-continue-btn').addEventListener('click', hideSyncOverlay);
+
+            // Fetch on load
+            fetchLeaderboard();
+
+            // Export to window safely
+            window._submitScore = submitScore;
+        })();
+
+        // Global proxy for game engine
+        function submitScore(sc, silent = false) {
+            if (window._submitScore) window._submitScore(sc, silent);
         }
 
         function hideSyncOverlay() {

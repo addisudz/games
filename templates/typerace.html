@@ -641,18 +641,22 @@
     <div class="sync-content">
         <div id="sync-spinner" class="sync-spinner"></div>
         <div id="sync-status-msg" class="sync-status"></div>
-        <button id="sync-continue-btn" class="sync-btn" onclick="hideSyncOverlay()">Continue</button>
+        <button id="sync-continue-btn" class="sync-btn">Continue</button>
     </div>
 </div>
 
 <script>
 // ======================== TELEGRAM PARAMS ========================
 const urlParams = new URLSearchParams(window.location.search);
+(function() {
+const urlParams = new URLSearchParams(window.location.search);
 const userId = urlParams.get('user_id');
 const inlineMessageId = urlParams.get('inline_message_id');
 const chatId = urlParams.get('chat_id');
 const messageId = urlParams.get('message_id');
 const vToken = urlParams.get('v_token');
+window._tgData = { userId, inlineMessageId, chatId, messageId, vToken };
+})();
 
 const BOOK_EXCERPTS = [
     {
@@ -953,79 +957,80 @@ function endGame() {
     submitScore(finalWpm, finalAcc, correctWords);
 }
 
-// ======================== SCORE SUBMISSION ========================
-async function computeSignature(score, token) {
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(token);
-    const scoreData = encoder.encode(score.toString());
-    const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const signature = await crypto.subtle.sign('HMAC', key, scoreData);
-    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
+// ======================== SCORE SUBMISSION (HARDENED) ========================
+(function() {
+    const { userId, inlineMessageId, chatId, messageId, vToken } = window._tgData;
+    delete window._tgData;
 
-async function submitScore(wpm, acc, wordsTyped) {
-    const overlay = document.getElementById('sync-overlay');
-    const statusMsg = document.getElementById('sync-status-msg');
-    const syncText = document.getElementById('sync-text');
-    const syncSpinner = document.getElementById('sync-spinner');
-    const continueBtn = document.getElementById('sync-continue-btn');
-    const rankBadge = document.getElementById('rank-badge');
-    const syncStatus = document.getElementById('sync-status');
-
-    if (!userId || wpm <= 0 || !vToken) {
-        console.log("No Telegram session or score too low");
-        return;
+    async function computeSignature(score, token) {
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(token);
+        // Obfuscation salt - must match backend
+        const s = "X7h9" + "_" + "P2q" + "_" + "K4v";
+        const scoreData = encoder.encode(s + ":" + score.toString());
+        const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const signature = await crypto.subtle.sign('HMAC', key, scoreData);
+        return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    // Show overlay
-    overlay.classList.add('visible');
-    statusMsg.textContent = "";
-    continueBtn.style.display = 'none';
-    syncSpinner.style.display = 'block';
+    async function submitScore(wpm, acc, wordsTyped) {
+        const overlay = document.getElementById('sync-overlay');
+        const statusMsg = document.getElementById('sync-status-msg');
+        const syncSpinner = document.getElementById('sync-spinner');
+        const continueBtn = document.getElementById('sync-continue-btn');
+        const rankBadge = document.getElementById('rank-badge');
 
-    try {
-        const scoreSig = await computeSignature(wpm, vToken);
-        const response = await fetch('/api/set_score', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: userId,
-                score: wpm,
-                inline_message_id: inlineMessageId,
-                chat_id: chatId,
-                message_id: messageId,
-                v_token: vToken,
-                score_sig: scoreSig
-            })
-        });
+        if (!userId || wpm <= 0 || !vToken) return;
 
-        const data = await response.json();
-        
-        if (response.ok && data.ok) {
-            if (data.rank && data.rank > 0) {
-                syncSpinner.style.display = 'none';
-                statusMsg.textContent = "RANK #" + data.rank;
-                continueBtn.style.display = 'block';
-                rankBadge.style.display = 'flex';
-                rankBadge.innerHTML = `
-                    <div class="rank-label">GROUP STANDING</div>
-                    <div class="rank-value">🏆 Rank <span>#${data.rank}</span></div>
-                `;
-            } else {
-                hideSyncOverlay();
-                rankBadge.style.display = 'flex';
-                rankBadge.innerHTML = `<div class="rank-value"><span>${wpm} WPM</span> submitted!</div>`;
-            }
-        } else {
-            hideSyncOverlay();
-        }
-    } catch (err) {
-        hideSyncOverlay();
+        overlay.classList.add('visible');
+        statusMsg.textContent = "";
+        continueBtn.style.display = 'none';
+        syncSpinner.style.display = 'block';
+
+        try {
+            const scoreSig = await computeSignature(wpm, vToken);
+            const response = await fetch('/api/set_score', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: userId, score: wpm,
+                    inline_message_id: inlineMessageId,
+                    chat_id: chatId, message_id: messageId,
+                    v_token: vToken, score_sig: scoreSig
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok && data.ok) {
+                if (data.rank && data.rank > 0) {
+                    syncSpinner.style.display = 'none';
+                    statusMsg.textContent = "RANK #" + data.rank;
+                    continueBtn.style.display = 'block';
+                    rankBadge.style.display = 'flex';
+                    rankBadge.innerHTML = `
+                        <div class="rank-label">GROUP STANDING</div>
+                        <div class="rank-value">🏆 Rank <span>#${data.rank}</span></div>
+                    `;
+                } else {
+                    hideSyncOverlay();
+                    rankBadge.style.display = 'flex';
+                    rankBadge.innerHTML = `<div class="rank-value"><span>${wpm} WPM</span> submitted!</div>`;
+                }
+            } else { hideSyncOverlay(); }
+        } catch (err) { hideSyncOverlay(); }
     }
-}
 
-function hideSyncOverlay() {
-    document.getElementById('sync-overlay').classList.remove('visible');
+    function hideSyncOverlay() {
+        document.getElementById('sync-overlay').classList.remove('visible');
+    }
+
+    const contBtn = document.getElementById('sync-continue-btn');
+    if (contBtn) contBtn.addEventListener('click', hideSyncOverlay);
+    window._submitScore = submitScore;
+})();
+
+function submitScore(wpm, acc, wordsTyped) {
+    if (window._submitScore) window._submitScore(wpm, acc, wordsTyped);
 }
 
 // ======================== START / RESTART ========================
