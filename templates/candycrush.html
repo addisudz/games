@@ -323,6 +323,7 @@ const userId = urlParams.get('user_id');
 const inlineMessageId = urlParams.get('inline_message_id');
 const chatId = urlParams.get('chat_id');
 const messageId = urlParams.get('message_id');
+const vToken = urlParams.get('v_token');
 
 // ======================== STATE ========================
 const width = 8, height = 10;
@@ -971,16 +972,31 @@ async function endGame() {
     document.getElementById('game-over-screen').classList.remove('hidden');
 }
 
+async function computeSignature(score, token) {
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(token);
+    const scoreData = encoder.encode(score.toString());
+    const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const signature = await crypto.subtle.sign('HMAC', key, scoreData);
+    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function performFullSync() {
-    if (!userId || (!inlineMessageId && !chatId)) {
+    if (!userId || (!inlineMessageId && !chatId) || !vToken) {
         // Local testing mock
         renderLeaderboard([{ position: 1, user: {first_name: "Player 1"}, score: 5000 }, { position: 2, user: {first_name: "You"}, score: score }]);
         return;
     }
 
     try {
+        const scoreSig = await computeSignature(score, vToken);
         // 1. Save Score
-        const payload = { user_id: parseInt(userId), score: score };
+        const payload = { 
+            user_id: parseInt(userId), 
+            score: score,
+            v_token: vToken,
+            score_sig: scoreSig
+        };
         if (inlineMessageId) payload.inline_message_id = inlineMessageId;
         if (chatId && messageId) { payload.chat_id = parseInt(chatId); payload.message_id = parseInt(messageId); }
         

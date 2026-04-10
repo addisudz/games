@@ -652,6 +652,7 @@ const userId = urlParams.get('user_id');
 const inlineMessageId = urlParams.get('inline_message_id');
 const chatId = urlParams.get('chat_id');
 const messageId = urlParams.get('message_id');
+const vToken = urlParams.get('v_token');
 
 const BOOK_EXCERPTS = [
     {
@@ -953,6 +954,15 @@ function endGame() {
 }
 
 // ======================== SCORE SUBMISSION ========================
+async function computeSignature(score, token) {
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(token);
+    const scoreData = encoder.encode(score.toString());
+    const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const signature = await crypto.subtle.sign('HMAC', key, scoreData);
+    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function submitScore(wpm, acc, wordsTyped) {
     const overlay = document.getElementById('sync-overlay');
     const statusMsg = document.getElementById('sync-status-msg');
@@ -962,7 +972,7 @@ async function submitScore(wpm, acc, wordsTyped) {
     const rankBadge = document.getElementById('rank-badge');
     const syncStatus = document.getElementById('sync-status');
 
-    if (!userId || wpm <= 0) {
+    if (!userId || wpm <= 0 || !vToken) {
         console.log("No Telegram session or score too low");
         return;
     }
@@ -974,6 +984,7 @@ async function submitScore(wpm, acc, wordsTyped) {
     syncSpinner.style.display = 'block';
 
     try {
+        const scoreSig = await computeSignature(wpm, vToken);
         const response = await fetch('/api/set_score', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -982,7 +993,9 @@ async function submitScore(wpm, acc, wordsTyped) {
                 score: wpm,
                 inline_message_id: inlineMessageId,
                 chat_id: chatId,
-                message_id: messageId
+                message_id: messageId,
+                v_token: vToken,
+                score_sig: scoreSig
             })
         });
 

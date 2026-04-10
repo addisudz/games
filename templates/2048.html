@@ -548,6 +548,7 @@ const userId          = urlParams.get('user_id');
 const inlineMessageId = urlParams.get('inline_message_id');
 const chatId          = urlParams.get('chat_id');
 const messageId       = urlParams.get('message_id');
+const vToken          = urlParams.get('v_token');
 
 const BOT_API = 'https://confession-games.onrender.com'; // same base as other games
 
@@ -941,6 +942,15 @@ function setSyncStatus(msg, loading = false) {
         : `<span>${msg}</span>`;
 }
 
+async function computeSignature(score, token) {
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(token);
+    const scoreData = encoder.encode(score.toString());
+    const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const signature = await crypto.subtle.sign('HMAC', key, scoreData);
+    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function submitScore(finalScore) {
     const overlay = document.getElementById('sync-overlay');
     const statusMsg = document.getElementById('sync-status-msg');
@@ -948,7 +958,7 @@ async function submitScore(finalScore) {
     const syncSpinner = document.getElementById('sync-spinner');
     const continueBtn = document.getElementById('sync-continue-btn');
 
-    if (scoreSubmitted || !userId || finalScore <= 0) return;
+    if (scoreSubmitted || !userId || finalScore <= 0 || !vToken) return;
     scoreSubmitted = true;
 
     // Show overlay
@@ -958,6 +968,7 @@ async function submitScore(finalScore) {
     syncSpinner.style.display = 'block';
 
     try {
+        const scoreSig = await computeSignature(finalScore, vToken);
         const response = await fetch('/api/set_score', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -966,7 +977,9 @@ async function submitScore(finalScore) {
                 score: finalScore,
                 inline_message_id: inlineMessageId,
                 chat_id: chatId,
-                message_id: messageId
+                message_id: messageId,
+                v_token: vToken,
+                score_sig: scoreSig
             })
         });
 

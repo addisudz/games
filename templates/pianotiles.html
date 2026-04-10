@@ -168,11 +168,20 @@
         // ═══════════════════════════════════════════════════════════════════
         //  TELEGRAM
         // ═══════════════════════════════════════════════════════════════════
-        const urlParams = new URLSearchParams(window.location.search);
         const userId = urlParams.get('user_id');
         const inlineMessageId = urlParams.get('inline_message_id');
         const chatId = urlParams.get('chat_id');
         const messageId = urlParams.get('message_id');
+        const vToken = urlParams.get('v_token');
+
+        async function computeSignature(score, token) {
+            const encoder = new TextEncoder();
+            const keyData = encoder.encode(token);
+            const scoreData = encoder.encode(score.toString());
+            const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+            const signature = await crypto.subtle.sign('HMAC', key, scoreData);
+            return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
 
         async function fetchLeaderboard() {
             if (!userId) return;
@@ -184,7 +193,8 @@
                         user_id: userId,
                         inline_message_id: inlineMessageId,
                         chat_id: chatId,
-                        message_id: messageId
+                        message_id: messageId,
+                        v_token: vToken // Optional for leaderboard but good to have
                     })
                 });
                 const data = await response.json();
@@ -197,15 +207,12 @@
             }
         }
 
-        // Fetch on load
-        fetchLeaderboard();
-
         async function submitScore(sc, silent = false) {
             const overlay = document.getElementById('sync-overlay');
             const statusMsg = document.getElementById('sync-status-msg');
             const syncSpinner = document.getElementById('sync-spinner');
             const continueBtn = document.getElementById('sync-continue-btn');
-            if (!userId || sc <= 0) return;
+            if (!userId || sc <= 0 || !vToken) return;
 
             if (!silent) {
                 overlay.classList.add('visible');
@@ -215,13 +222,18 @@
             }
 
             try {
+                const scoreSig = await computeSignature(sc, vToken);
                 const response = await fetch('/api/set_score', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        user_id: userId, score: sc,
+                        user_id: userId, 
+                        score: sc,
                         inline_message_id: inlineMessageId,
-                        chat_id: chatId, message_id: messageId
+                        chat_id: chatId, 
+                        message_id: messageId,
+                        v_token: vToken,
+                        score_sig: scoreSig
                     })
                 });
                 const data = await response.json();

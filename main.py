@@ -5,6 +5,9 @@ import asyncio
 import random
 import threading
 import html
+import hmac
+import hashlib
+import time
 from typing import Optional, Dict, List, Tuple, Union
 from dotenv import load_dotenv
 load_dotenv()
@@ -79,6 +82,62 @@ logger = logging.getLogger(__name__)
 
 # Initialize game manager
 game_manager = GameManager()
+
+# --- SECURITY FOR HTML5 GAMES ---
+# Secret key for signing game scores (use BOT_TOKEN as base if GAME_SECRET not set)
+GAME_SECRET = os.environ.get("GAME_SECRET") or os.environ.get("BOT_TOKEN") or "dev_secret_key"
+USED_TOKENS = {} # token -> expiry_timestamp
+
+def generate_v_token(user_id, identifier):
+    """Generate a verification token for a game session."""
+    timestamp = str(int(time.time()))
+    data = f"{user_id}:{identifier}:{timestamp}"
+    signature = hmac.new(GAME_SECRET.encode(), data.encode(), hashlib.sha256).hexdigest()
+    return f"{timestamp}:{signature}"
+
+def verify_v_token(user_id, identifier, v_token):
+    """Verify a verification token."""
+    try:
+        if v_token in USED_TOKENS:
+            return False # Already used
+            
+        timestamp, signature = v_token.split(":")
+        # Check if token is too old (e.g., older than 2 hours)
+        if int(time.time()) - int(timestamp) > 7200:
+            return False
+            
+        data = f"{user_id}:{identifier}:{timestamp}"
+        expected_signature = hmac.new(GAME_SECRET.encode(), data.encode(), hashlib.sha256).hexdigest()
+        
+        if hmac.compare_digest(signature, expected_signature):
+            # Mark as used
+            USED_TOKENS[v_token] = int(time.time()) + 7200
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Token verification error: {e}")
+        return False
+
+def verify_score_signature(score, v_token, score_sig):
+    """Verify that the score was signed with the v_token."""
+    try:
+        expected_sig = hmac.new(v_token.encode(), str(score).encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(score_sig, expected_sig)
+    except Exception as e:
+        logger.error(f"Score signature verification error: {e}")
+        return False
+
+# Clean up used tokens occasionally
+def cleanup_tokens():
+    while True:
+        now = time.time()
+        expired = [t for t, expiry in USED_TOKENS.items() if now > expiry]
+        for t in expired:
+            del USED_TOKENS[t]
+        time.sleep(3600)
+
+threading.Thread(target=cleanup_tokens, daemon=True).start()
+# ---------------------------------
 
 # Global task tracker for game-related background tasks (timers, hints, reminders)
 active_game_tasks: Dict[int, List[asyncio.Task]] = {}
@@ -4957,76 +5016,77 @@ async def refresh_cache_command(update: Update, context: ContextTypes.DEFAULT_TY
 async def handle_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle callback queries for HTML5 games like flappybird."""
     query = update.callback_query
+    user_id = query.from_user.id
     
     # Check if the callback query contains a game short name
     if getattr(query, 'game_short_name', None) == "flappybird":
         base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://flappybird-test.example.com"
-        game_url = f"{base_url}/flappybird?user_id={query.from_user.id}"
+        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
+        v_token = generate_v_token(user_id, identifier)
+        
+        game_url = f"{base_url}/flappybird?user_id={user_id}&v_token={v_token}"
         if query.inline_message_id:
             game_url += f"&inline_message_id={query.inline_message_id}"
         else:
             if query.message:
                 game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
-        await context.bot.answer_callback_query(
-            callback_query_id=query.id,
-            url=game_url
-        )
+        await context.bot.answer_callback_query(callback_query_id=query.id, url=game_url)
         return
 
     if getattr(query, 'game_short_name', None) == "typerace":
         base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://typerace-test.example.com"
-        game_url = f"{base_url}/typerace?user_id={query.from_user.id}"
+        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
+        v_token = generate_v_token(user_id, identifier)
+        
+        game_url = f"{base_url}/typerace?user_id={user_id}&v_token={v_token}"
         if query.inline_message_id:
             game_url += f"&inline_message_id={query.inline_message_id}"
         else:
             if query.message:
                 game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
-        await context.bot.answer_callback_query(
-            callback_query_id=query.id,
-            url=game_url
-        )
+        await context.bot.answer_callback_query(callback_query_id=query.id, url=game_url)
         return
 
     if getattr(query, 'game_short_name', None) == "tilepuzzle":
         base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://tilepuzzle-test.example.com"
-        game_url = f"{base_url}/tilepuzzle?user_id={query.from_user.id}"
+        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
+        v_token = generate_v_token(user_id, identifier)
+        
+        game_url = f"{base_url}/tilepuzzle?user_id={user_id}&v_token={v_token}"
         if query.inline_message_id:
             game_url += f"&inline_message_id={query.inline_message_id}"
         else:
             if query.message:
                 game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
-        await context.bot.answer_callback_query(
-            callback_query_id=query.id,
-            url=game_url
-        )
+        await context.bot.answer_callback_query(callback_query_id=query.id, url=game_url)
         return
 
     if getattr(query, 'game_short_name', None) == "pianotiles":
         base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://pianotiles-test.example.com"
-        game_url = f"{base_url}/pianotiles?user_id={query.from_user.id}"
+        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
+        v_token = generate_v_token(user_id, identifier)
+        
+        game_url = f"{base_url}/pianotiles?user_id={user_id}&v_token={v_token}"
         if query.inline_message_id:
             game_url += f"&inline_message_id={query.inline_message_id}"
         else:
             if query.message:
                 game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
-        await context.bot.answer_callback_query(
-            callback_query_id=query.id,
-            url=game_url
-        )
+        await context.bot.answer_callback_query(callback_query_id=query.id, url=game_url)
         return
 
     if getattr(query, 'game_short_name', None) == "candycrush":
         base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://candycrush-test.example.com"
-        game_url = f"{base_url}/candycrush?user_id={query.from_user.id}"
+        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
+        v_token = generate_v_token(user_id, identifier)
+        
+        game_url = f"{base_url}/candycrush?user_id={user_id}&v_token={v_token}"
         if query.inline_message_id:
             game_url += f"&inline_message_id={query.inline_message_id}"
         else:
             if query.message:
                 game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
-        await context.bot.answer_callback_query(
-            callback_query_id=query.id,
-            url=game_url
-        )
+        await context.bot.answer_callback_query(callback_query_id=query.id, url=game_url)
         return
 
 def main() -> None:
@@ -5145,6 +5205,24 @@ def main() -> None:
         inline_message_id = data.get('inline_message_id')
         chat_id = data.get('chat_id')
         message_id = data.get('message_id')
+        v_token = data.get('v_token')
+        score_sig = data.get('score_sig')
+        
+        # --- SECURITY CHECK ---
+        identifier = inline_message_id or (f"{chat_id}:{message_id}" if chat_id and message_id else "unknown")
+        
+        if not v_token or not score_sig:
+            logger.warning(f"Rejected set_score: Missing security data. user_id: {user_id}")
+            return jsonify({"ok": False, "error": "Missing security tokens"}), 403
+            
+        if not verify_v_token(user_id, identifier, v_token):
+            logger.warning(f"Rejected set_score: Invalid or reused v_token. user_id: {user_id}")
+            return jsonify({"ok": False, "error": "Invalid or expired session"}), 403
+            
+        if not verify_score_signature(score, v_token, score_sig):
+            logger.warning(f"Rejected set_score: Invalid score signature. user_id: {user_id}, score: {score}")
+            return jsonify({"ok": False, "error": "Score verification failed"}), 403
+        # ----------------------
         
         bot_token = os.environ.get("BOT_TOKEN")
         url = f"https://api.telegram.org/bot{bot_token}/setGameScore"
