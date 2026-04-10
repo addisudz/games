@@ -104,7 +104,7 @@ class GeminiAI:
                 logger.error(f"Error calling Gemini API: {e}")
                 break
         
-        return "I'm hitting a limit, probably because you talk too much. Shut up for a bit."
+        return 
 
 # Singleton instance
 gemini_bot = GeminiAI()
