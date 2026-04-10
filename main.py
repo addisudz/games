@@ -86,54 +86,85 @@ game_manager = GameManager()
 # --- SECURITY FOR HTML5 GAMES ---
 # Secret key for signing game scores (use BOT_TOKEN as base if GAME_SECRET not set)
 GAME_SECRET = os.environ.get("GAME_SECRET") or os.environ.get("BOT_TOKEN") or "dev_secret_key"
-USED_TOKENS = {} # token -> expiry_timestamp
+GAME_SESSIONS = {} # token -> {"user_id": uid, "start_time": t, "game_type": gt, "expiry": exp}
 
-def generate_v_token(user_id, identifier):
+def generate_v_token(user_id, identifier, game_type):
     """Generate a verification token for a game session."""
     timestamp = str(int(time.time()))
     data = f"{user_id}:{identifier}:{timestamp}"
     signature = hmac.new(GAME_SECRET.encode(), data.encode(), hashlib.sha256).hexdigest()
-    return f"{timestamp}:{signature}"
+    token = f"{timestamp}:{signature}"
+    
+    # Store session metadata for duration/plausibility checks
+    GAME_SESSIONS[token] = {
+        "user_id": user_id,
+        "start_time": time.time(),
+        "game_type": game_type,
+        "expiry": time.time() + 7200
+    }
+    return token
 
-def verify_v_token(user_id, identifier, v_token):
+def is_score_plausible(game_type, score, duration):
+    """Check if the score is physically possible in the given time."""
+    if duration < 1: duration = 1 # Avoid division by zero
+    
+    limits = {
+        "flappybird": 2.5,     # pipes per second
+        "typerace": 250,       # WPM (this is points in our case)
+        "tilepuzzle": 150,     # points per second (2048)
+        "pianotiles": 30,      # tiles per second
+        "candycrush": 2000     # points per second (can be high due to combos)
+    }
+    
+    limit = limits.get(game_type, 1000) # Default high limit if unknown
+    
+    if game_type == "typerace":
+        # typerace score is already WPM or close to it, check against 250
+        return score <= 250
+        
+    pts_per_sec = score / duration
+    return pts_per_sec <= limit
+
+def verify_v_token(user_id, v_token):
     """Verify a verification token."""
     try:
-        if v_token in USED_TOKENS:
-            return False # Already used
+        session = GAME_SESSIONS.get(v_token)
+        if not session:
+            return None # Not found or already cleared
             
-        timestamp, signature = v_token.split(":")
-        # Check if token is too old (e.g., older than 2 hours)
-        if int(time.time()) - int(timestamp) > 7200:
-            return False
+        if session["user_id"] != user_id:
+            return None
             
-        data = f"{user_id}:{identifier}:{timestamp}"
-        expected_signature = hmac.new(GAME_SECRET.encode(), data.encode(), hashlib.sha256).hexdigest()
-        
-        if hmac.compare_digest(signature, expected_signature):
-            # Mark as used
-            USED_TOKENS[v_token] = int(time.time()) + 7200
-            return True
-        return False
+        if time.time() > session["expiry"]:
+            del GAME_SESSIONS[v_token]
+            return None
+            
+        # We don't delete yet because we need start_time in set_score
+        # It will be deleted in set_score or by cleanup_tokens
+        return session
     except Exception as e:
         logger.error(f"Token verification error: {e}")
-        return False
+        return None
 
 def verify_score_signature(score, v_token, score_sig):
-    """Verify that the score was signed with the v_token."""
+    """Verify that the score was signed with the v_token and salt."""
     try:
-        expected_sig = hmac.new(v_token.encode(), str(score).encode(), hashlib.sha256).hexdigest()
+        # Obfuscation salt - must match frontend
+        SALT = "X7h9_P2q_K4v" 
+        data_to_sign = f"{SALT}:{score}"
+        expected_sig = hmac.new(v_token.encode(), data_to_sign.encode(), hashlib.sha256).hexdigest()
         return hmac.compare_digest(score_sig, expected_sig)
     except Exception as e:
         logger.error(f"Score signature verification error: {e}")
         return False
 
-# Clean up used tokens occasionally
+# Clean up sessions occasionally
 def cleanup_tokens():
     while True:
         now = time.time()
-        expired = [t for t, expiry in USED_TOKENS.items() if now > expiry]
+        expired = [t for t, s in GAME_SESSIONS.items() if now > s["expiry"]]
         for t in expired:
-            del USED_TOKENS[t]
+            del GAME_SESSIONS[t]
         time.sleep(3600)
 
 threading.Thread(target=cleanup_tokens, daemon=True).start()
@@ -5033,54 +5064,17 @@ async def handle_game_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await context.bot.answer_callback_query(callback_query_id=query.id, url=game_url)
         return
 
-    if getattr(query, 'game_short_name', None) == "typerace":
-        base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://typerace-test.example.com"
+    # Check if the callback query contains a game short name
+    game_short_name = getattr(query, 'game_short_name', None)
+    
+    if game_short_name in ["flappybird", "typerace", "tilepuzzle", "pianotiles", "candycrush"]:
+        base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or f"https://{game_short_name}-test.example.com"
         identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
-        v_token = generate_v_token(user_id, identifier)
         
-        game_url = f"{base_url}/typerace?user_id={user_id}&v_token={v_token}"
-        if query.inline_message_id:
-            game_url += f"&inline_message_id={query.inline_message_id}"
-        else:
-            if query.message:
-                game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
-        await context.bot.answer_callback_query(callback_query_id=query.id, url=game_url)
-        return
-
-    if getattr(query, 'game_short_name', None) == "tilepuzzle":
-        base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://tilepuzzle-test.example.com"
-        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
-        v_token = generate_v_token(user_id, identifier)
+        # Now passing 3 arguments as required by new definition
+        v_token = generate_v_token(user_id, identifier, game_short_name)
         
-        game_url = f"{base_url}/tilepuzzle?user_id={user_id}&v_token={v_token}"
-        if query.inline_message_id:
-            game_url += f"&inline_message_id={query.inline_message_id}"
-        else:
-            if query.message:
-                game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
-        await context.bot.answer_callback_query(callback_query_id=query.id, url=game_url)
-        return
-
-    if getattr(query, 'game_short_name', None) == "pianotiles":
-        base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://pianotiles-test.example.com"
-        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
-        v_token = generate_v_token(user_id, identifier)
-        
-        game_url = f"{base_url}/pianotiles?user_id={user_id}&v_token={v_token}"
-        if query.inline_message_id:
-            game_url += f"&inline_message_id={query.inline_message_id}"
-        else:
-            if query.message:
-                game_url += f"&chat_id={query.message.chat.id}&message_id={query.message.message_id}"
-        await context.bot.answer_callback_query(callback_query_id=query.id, url=game_url)
-        return
-
-    if getattr(query, 'game_short_name', None) == "candycrush":
-        base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://candycrush-test.example.com"
-        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
-        v_token = generate_v_token(user_id, identifier)
-        
-        game_url = f"{base_url}/candycrush?user_id={user_id}&v_token={v_token}"
+        game_url = f"{base_url}/{game_short_name}?user_id={user_id}&v_token={v_token}"
         if query.inline_message_id:
             game_url += f"&inline_message_id={query.inline_message_id}"
         else:
@@ -5215,13 +5209,24 @@ def main() -> None:
             logger.warning(f"Rejected set_score: Missing security data. user_id: {user_id}")
             return jsonify({"ok": False, "error": "Missing security tokens"}), 403
             
-        if not verify_v_token(user_id, identifier, v_token):
+        session = verify_v_token(user_id, v_token)
+        if not session:
             logger.warning(f"Rejected set_score: Invalid or reused v_token. user_id: {user_id}")
             return jsonify({"ok": False, "error": "Invalid or expired session"}), 403
             
         if not verify_score_signature(score, v_token, score_sig):
             logger.warning(f"Rejected set_score: Invalid score signature. user_id: {user_id}, score: {score}")
             return jsonify({"ok": False, "error": "Score verification failed"}), 403
+            
+        # --- PLAUSIBILITY CHECK ---
+        duration = time.time() - session["start_time"]
+        if not is_score_plausible(session["game_type"], score, duration):
+            logger.warning(f"Rejected set_score: IMPOSSIBLE SCORE. user_id: {user_id}, score: {score}, duration: {duration:.2f}s, game: {session['game_type']}")
+            return jsonify({"ok": False, "error": "Impossible score detected"}), 403
+            
+        # Mark as used (delete from memory)
+        if v_token in GAME_SESSIONS:
+            del GAME_SESSIONS[v_token]
         # ----------------------
         
         bot_token = os.environ.get("BOT_TOKEN")
