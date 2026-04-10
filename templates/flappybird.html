@@ -245,6 +245,8 @@
                 return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
             }
 
+            let scoreSubmitted = false;
+
             async function submitScore(score) {
                 const overlay = document.getElementById('sync-overlay');
                 const statusMsg = document.getElementById('sync-status-msg');
@@ -252,7 +254,8 @@
                 const continueBtn = document.getElementById('sync-continue-btn');
                 const rankDisplay = document.getElementById('rankDisplay');
 
-                if (!userId || score <= 0 || !vToken) return;
+                if (scoreSubmitted || !userId || score <= 0 || !vToken) return;
+                scoreSubmitted = true;
 
                 overlay.classList.add('visible');
                 statusMsg.textContent = "";

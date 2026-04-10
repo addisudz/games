@@ -211,12 +211,15 @@
                 }
             }
 
+            let scoreSubmitted = false;
+
             async function submitScore(sc, silent = false) {
                 const overlay = document.getElementById('sync-overlay');
                 const statusMsg = document.getElementById('sync-status-msg');
                 const syncSpinner = document.getElementById('sync-spinner');
                 const continueBtn = document.getElementById('sync-continue-btn');
-                if (!userId || sc <= 0 || !vToken) return;
+                if (scoreSubmitted || !userId || sc <= 0 || !vToken) return;
+                scoreSubmitted = true;
 
                 if (!silent) {
                     overlay.classList.add('visible');

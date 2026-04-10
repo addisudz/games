@@ -91,9 +91,11 @@ GAME_SESSIONS = {} # token -> {"user_id": uid, "start_time": t, "game_type": gt,
 def generate_v_token(user_id, identifier, game_type):
     """Generate a verification token for a game session."""
     timestamp = str(int(time.time()))
-    data = f"{user_id}:{identifier}:{timestamp}"
+    # Add a random salt to ensure uniqueness in high-frequency requests
+    salt = secrets.token_hex(4)
+    data = f"{user_id}:{identifier}:{timestamp}:{salt}"
     signature = hmac.new(GAME_SECRET.encode(), data.encode(), hashlib.sha256).hexdigest()
-    token = f"{timestamp}:{signature}"
+    token = f"{timestamp}:{salt}:{signature}"
     
     # Store session metadata for duration/plausibility checks
     GAME_SESSIONS[token] = {

@@ -973,6 +973,8 @@ function endGame() {
         return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
+    let scoreSubmitted = false;
+
     async function submitScore(wpm, acc, wordsTyped) {
         const overlay = document.getElementById('sync-overlay');
         const statusMsg = document.getElementById('sync-status-msg');
@@ -980,7 +982,8 @@ function endGame() {
         const continueBtn = document.getElementById('sync-continue-btn');
         const rankBadge = document.getElementById('rank-badge');
 
-        if (!userId || wpm <= 0 || !vToken) return;
+        if (scoreSubmitted || !userId || wpm <= 0 || !vToken) return;
+        scoreSubmitted = true;
 
         overlay.classList.add('visible');
         statusMsg.textContent = "";
