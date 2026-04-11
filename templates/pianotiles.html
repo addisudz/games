@@ -567,9 +567,15 @@
 
             for (let i = 0; i < beatMap.length; i++) {
                 const note = beatMap[i];
-
-                // Dynamic sizing: Ensure at least a 30% gap between tiles in the same lane
-                // Find next note in SAME column to calculate gap
+                
+                // Detection: if there's a significant gap to the NEXT note in the song, make it a HOLD
+                const nextNote = beatMap[i + 1];
+                const gap = nextNote ? (nextNote.t - note.t) : 1.0;
+                
+                let isHold = gap > 0.35; // Threshold for a hold tile (0.35s)
+                let duration = 0.15;
+                
+                // Find next note in SAME column for visual gap logic
                 let nextInLane = null;
                 for (let j = i + 1; j < beatMap.length; j++) {
                     if (beatMap[j].c === note.c) {
@@ -578,20 +584,26 @@
                     }
                 }
 
-                let duration = 0.15; // default
-                if (nextInLane) {
-                    const gap = nextInLane.t - note.t;
-                    duration = Math.min(0.15, gap * 0.7); // Leave 30% gap
+                if (isHold) {
+                    // For holds, we want it to be longer, but still leave a gap before any next same-lane tile
+                    const maxHoldDur = nextInLane ? (nextInLane.t - note.t) * 0.8 : 1.2;
+                    duration = Math.min(gap * 0.9, maxHoldDur, 1.2); 
+                } else if (nextInLane) {
+                    const lGap = nextInLane.t - note.t;
+                    duration = Math.min(0.15, lGap * 0.7);
                 }
 
                 tiles.push({
                     index: i,
                     blackCol: note.c,
                     beatStart: note.t,
-                    beatEnd: note.t + duration,
-                    freq: note.f,
+                    beatEnd: note.t + duration, 
+                    freq: note.f,          
                     tapped: false,
-                    tapScale: 0
+                    tapScale: 0,
+                    isHold: isHold,
+                    holding: false,
+                    holdScoreTimer: 0
                 });
             }
         }
@@ -1027,6 +1039,10 @@
                 // Correctly tapped the sequence!
                 targetTile.tapped = true;
                 targetTile.tapScale = 1.0;
+
+                if (targetTile.isHold) {
+                    targetTile.holding = true;
+                }
 
                 score++;
                 scoreHud.innerText = score;
