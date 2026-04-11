@@ -359,10 +359,7 @@
         async function loadAndAnalyzeSong() {
             try {
                 loadProgress = 0.1;
-                const resp = await fetch('/piano-tiles/song2.mp3');
-                if (!resp.ok) throw new Error("Audio not found");
-                loadProgress = 0.5;
-
+                
                 songElement = new Audio('/piano-tiles/song2.mp3');
                 songElement.crossOrigin = 'anonymous';
                 songElement.preload = 'auto';
@@ -372,17 +369,22 @@
                     if (gameState === STATE.PLAYING) onLevelCleared();
                 });
 
-                await new Promise((resolve, reject) => {
-                    songElement.addEventListener('canplaythrough', resolve, { once: true });
-                    songElement.addEventListener('error', reject, { once: true });
-                    songElement.load();
-                });
+                // Simplified loading promise with a timeout to avoid hangs
+                await Promise.race([
+                    new Promise((resolve, reject) => {
+                        songElement.addEventListener('canplaythrough', resolve, { once: true });
+                        songElement.addEventListener('error', (e) => {
+                            console.error("Audio Load Error:", e);
+                            resolve(); // Continue anyway
+                        }, { once: true });
+                    }),
+                    new Promise(resolve => setTimeout(resolve, 3000)) // Max 3s wait
+                ]);
 
                 loadProgress = 1.0;
                 songReady = true;
             } catch (e) {
                 console.error('Song load failed:', e);
-                // Fallback to allow game play without actual audio if file is missing
                 loadProgress = 1.0;
                 songReady = true;
             }
@@ -423,8 +425,18 @@
             }
         }
 
+        let gameTime = 0;   // Independent game clock for smooth movement
+        let prevSongTime = 0;
+
         function getSongTime() {
-            return songElement ? songElement.currentTime : 0;
+            if (!songElement || songElement.paused) return gameTime;
+            
+            // Sync gameTime to audio clock if audio is healthy and moving
+            if (songElement.currentTime !== prevSongTime) {
+                gameTime = songElement.currentTime;
+                prevSongTime = songElement.currentTime;
+            }
+            return gameTime;
         }
 
         // Tap feedback sound — updated for real note recognition
@@ -902,6 +914,7 @@
             particles = [];
             failedTile = null;
             beatPulse = 0;
+            gameTime = 0; // Reset game clock
             prevSongTime = 0;
 
             generateTileGrid();
@@ -1024,8 +1037,6 @@
         let accumulator = 0;
         let lastTime = 0;
 
-        let prevSongTime = 0;
-
         function update() {
             if (gameState === STATE.CLEARED) {
                 if (Date.now() - clearedTimer > 2500) {
@@ -1034,6 +1045,9 @@
                 return;
             }
             if (gameState !== STATE.PLAYING) return;
+
+            // Advance local clock
+            gameTime += (FIXED_DT / 1000) * gameSpeed;
 
             updateProgressBar();
 
