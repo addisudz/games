@@ -946,6 +946,7 @@ window.addEventListener('load', () => {
 // ======================== LIFECYCLE ========================
 
 function startGame() {
+    resetScoreSync();
     document.getElementById('start-screen').classList.add('hidden');
     document.getElementById('game-over-screen').classList.add('hidden');
     score = 0; scoreDisplay.innerText = score;
@@ -1026,10 +1027,15 @@ async function endGame() {
         }
     }
     window._performFullSync = performFullSync;
+    window._resetSync = () => { scoreSubmitted = false; };
 })();
 
 async function performFullSync() {
     if (window._performFullSync) await window._performFullSync();
+}
+
+function resetScoreSync() {
+    if (window._resetSync) window._resetSync();
 }
 
 function renderLeaderboard(data) {

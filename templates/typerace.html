@@ -1030,14 +1030,20 @@ function endGame() {
     const contBtn = document.getElementById('sync-continue-btn');
     if (contBtn) contBtn.addEventListener('click', hideSyncOverlay);
     window._submitScore = submitScore;
+    window._resetSync = () => { scoreSubmitted = false; };
 })();
 
 function submitScore(wpm, acc, wordsTyped) {
     if (window._submitScore) window._submitScore(wpm, acc, wordsTyped);
 }
 
+function resetScoreSync() {
+    if (window._resetSync) window._resetSync();
+}
+
 // ======================== START / RESTART ========================
 function initGame() {
+    resetScoreSync();
     words = getRandomParagraph();
     curWordIdx = 0;
     curLetterIdx = 0;

@@ -609,12 +609,12 @@ function tilePos(row, col) {
 //  BOARD INIT
 // ============================================================
 function initBoard() {
+    scoreSubmitted = false;
     board = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
     score = 0;
     won = false;
     keepGoing = false;
     gameOver = false;
-    scoreSubmitted = false;
     scoreVal.textContent = 0;
     tileLayer.innerHTML = '';
     overlayWon.classList.remove('show');
@@ -624,6 +624,9 @@ function initBoard() {
     addRandomTile();
     renderTiles();
     updateHighestTile();
+    
+    // Clear any existing sync overlay
+    hideSyncOverlay();
 }
 
 // ============================================================

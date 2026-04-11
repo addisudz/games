@@ -5227,9 +5227,10 @@ def main() -> None:
             logger.warning(f"Rejected set_score: IMPOSSIBLE SCORE. user_id: {user_id}, score: {score}, duration: {duration:.2f}s, game: {session['game_type']}")
             return jsonify({"ok": False, "error": "Impossible score detected"}), 403
             
-        # Mark as used (delete from memory)
+        # Reset session start_time for the next round instead of deleting it.
+        # This allows multiple games per launch while keeping plausibility accurate for each round.
         if v_token in GAME_SESSIONS:
-            del GAME_SESSIONS[v_token]
+            GAME_SESSIONS[v_token]["start_time"] = time.time()
         # ----------------------
         
         bot_token = os.environ.get("BOT_TOKEN")

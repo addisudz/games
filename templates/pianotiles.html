@@ -268,11 +268,16 @@
 
             // Export to window safely
             window._submitScore = submitScore;
+            window._resetSync = () => { scoreSubmitted = false; };
         })();
 
         // Global proxy for game engine
         function submitScore(sc, silent = false) {
             if (window._submitScore) window._submitScore(sc, silent);
+        }
+
+        function resetScoreSync() {
+            if (window._resetSync) window._resetSync();
         }
 
         function hideSyncOverlay() {
@@ -952,6 +957,7 @@
         function startGame() {
             if (!songReady) return;
             initAudio();
+            resetScoreSync();
 
             score = 0;
             currentLevel = 1;
