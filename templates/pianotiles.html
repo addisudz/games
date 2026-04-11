@@ -358,8 +358,8 @@
             }
 
             const beats = [];
-            const thresholdMultiplier = 1.95;
-            const minInterval = 0.088;       // Consolidated gap (88ms) - avoids unplayable clutter
+            const thresholdMultiplier = 1.5; // Standard sensitivity
+            const minInterval = 0.160;      // Standard spacing (160ms) - less crowded
             const peakWindow = 4;
             const windowSize = 30;
 
@@ -414,7 +414,7 @@
                 }
             }
             console.log(`Analyzed ${beats.length} piano notes.`);
-            return beats;
+            return beats.sort((a, b) => a.t - b.t);
         }
 
         function initAudio() {
