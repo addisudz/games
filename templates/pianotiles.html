@@ -358,53 +358,61 @@
             }
 
             const beats = [];
-            const windowSize = 30; 
-            const multiplier = 1.4; // Slightly more sensitive
-            const minInterval = 0.055; // 55ms - capture fast Rush E notes!
+            const thresholdMultiplier = 1.95; 
+            const minInterval = 0.088;       
+            const peakWindow = 4;            
+            const windowSize = 30;
 
             for (let i = windowSize; i < numFrames - windowSize; i++) {
                 let localSum = 0;
-                for (let j = i - windowSize; j <= i + windowSize; j++) {
+                const win = 35;
+                for (let j = i - win; j <= i + win; j++) {
                     localSum += flux[j];
                 }
-                const localAvg = localSum / (windowSize * 2 + 1);
-                const threshold = localAvg * multiplier + 0.0001;
+                const threshold = (localSum / (win * 2 + 1)) * thresholdMultiplier + 0.0002;
 
-                if (flux[i] > threshold && flux[i] >= flux[i - 1] && flux[i] >= flux[i + 1]) {
-                    const time = (i * hopSize) / sampleRate;
+                if (flux[i] > threshold) {
+                    let isPeak = true;
+                    for (let j = i - peakWindow; j <= i + peakWindow; j++) {
+                        if (flux[j] > flux[i]) {
+                            isPeak = false;
+                            break;
+                        }
+                    }
 
-                    if (beats.length === 0 || time - beats[beats.length - 1].t >= minInterval) {
-                        // 3. Frequency Analysis (Simplified Zero-Crossing Rate)
-                        // This helps map "Low" notes to left columns and "High" to right
-                        const startSample = i * hopSize;
-                        const endSample = startSample + frameSize;
-                        let zeroCrossings = 0;
-                        for (let s = startSample + 1; s < endSample; s++) {
-                            if ((data[s] >= 0 && data[s-1] < 0) || (data[s] < 0 && data[s-1] >= 0)) {
-                                zeroCrossings++;
+                    if (isPeak) {
+                        const time = (i * hopSize) / sampleRate;
+                        if (beats.length === 0 || time - beats[beats.length - 1].t >= minInterval) {
+                            const startSample = i * hopSize;
+                            const endSample = startSample + frameSize;
+                            let zcr = 0;
+                            const chData = buffer.getChannelData(0);
+                            for (let s = startSample + 1; s < endSample; s++) {
+                                if ((chData[s] >= 0 && chData[s-1] < 0) || (chData[s] < 0 && chData[s-1] >= 0)) zcr++;
                             }
-                        }
-                        
-                        // Approximate frequency = (zeroCrossings / 2) * (sampleRate / frameSize)
-                        const freq = (zeroCrossings / 2) * (sampleRate / frameSize);
-                        
-                        // Map frequency to 4 columns
-                        let col = 0;
-                        if (freq > 1800) col = 3;
-                        else if (freq > 900) col = 2;
-                        else if (freq > 400) col = 1;
+                            const freq = (zcr / 2) * (sampleRate / frameSize);
+                            
+                            let col = 0;
+                            if (freq > 1800) col = 3;
+                            else if (freq > 900) col = 2;
+                            else if (freq > 400) col = 1;
 
-                        // Ensure no back-to-back same column for better gameplay
-                        let lastCol = beats.length > 0 ? beats[beats.length - 1].c : -1;
-                        while (col === lastCol) {
-                            col = Math.floor(Math.random() * 4);
-                        }
+                            let l1 = beats.length > 0 ? beats[beats.length - 1].c : -1;
+                            let l2 = beats.length > 1 ? beats[beats.length - 2].c : -1;
+                            
+                            let attempts = 0;
+                            while ((col === l1 || col === l2) && attempts < 10) {
+                                col = Math.floor(Math.random() * 4);
+                                attempts++;
+                            }
 
-                        beats.push({ t: time, c: col, f: freq });
+                            beats.push({ t: time, c: col, f: freq });
+                            i += peakWindow; 
+                        }
                     }
                 }
             }
-            console.log(`Analyzed ${beats.length} piano notes with frequency mapping.`);
+            console.log(`Analyzed ${beats.length} piano notes.`);
             return beats;
         }
 
