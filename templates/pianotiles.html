@@ -358,7 +358,7 @@
             }
 
             const beats = [];
-            const thresholdMultiplier = 1.5; // Standard sensitivity
+            const thresholdMultiplier = 1.6; // Standard sensitivity
             const minInterval = 0.160;      // Standard spacing (160ms) - less crowded
             const peakWindow = 4;
             const windowSize = 30;
@@ -567,14 +567,14 @@
 
             for (let i = 0; i < beatMap.length; i++) {
                 const note = beatMap[i];
-                
+
                 // Detection: if there's a significant gap to the NEXT note in the song, make it a HOLD
                 const nextNote = beatMap[i + 1];
                 const gap = nextNote ? (nextNote.t - note.t) : 1.0;
-                
+
                 let isHold = gap > 0.35; // Threshold for a hold tile (0.35s)
                 let duration = 0.15;
-                
+
                 // Find next note in SAME column for visual gap logic
                 let nextInLane = null;
                 for (let j = i + 1; j < beatMap.length; j++) {
@@ -587,7 +587,7 @@
                 if (isHold) {
                     // For holds, we want it to be longer, but still leave a gap before any next same-lane tile
                     const maxHoldDur = nextInLane ? (nextInLane.t - note.t) * 0.8 : 1.2;
-                    duration = Math.min(gap * 0.9, maxHoldDur, 1.2); 
+                    duration = Math.min(gap * 0.9, maxHoldDur, 1.2);
                 } else if (nextInLane) {
                     const lGap = nextInLane.t - note.t;
                     duration = Math.min(0.15, lGap * 0.7);
@@ -597,8 +597,8 @@
                     index: i,
                     blackCol: note.c,
                     beatStart: note.t,
-                    beatEnd: note.t + duration, 
-                    freq: note.f,          
+                    beatEnd: note.t + duration,
+                    freq: note.f,
                     tapped: false,
                     tapScale: 0,
                     isHold: isHold,
