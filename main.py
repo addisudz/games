@@ -87,7 +87,35 @@ game_manager = GameManager()
 # --- SECURITY FOR HTML5 GAMES ---
 # Secret key for signing game scores (use BOT_TOKEN as base if GAME_SECRET not set)
 GAME_SECRET = os.environ.get("GAME_SECRET") or os.environ.get("BOT_TOKEN") or "dev_secret_key"
+GAME_SESSIONS_FILE = "game_sessions.json"
 GAME_SESSIONS = {} # token -> {"user_id": uid, "start_time": t, "game_type": gt, "expiry": exp}
+session_lock = threading.Lock()
+
+def save_sessions():
+    """Save active game sessions to a JSON file."""
+    try:
+        with session_lock:
+            with open(GAME_SESSIONS_FILE, "w") as f:
+                json.dump(GAME_SESSIONS, f)
+    except Exception as e:
+        logger.error(f"Error saving game sessions: {e}")
+
+def load_sessions():
+    """Load active game sessions from a JSON file."""
+    global GAME_SESSIONS
+    if os.path.exists(GAME_SESSIONS_FILE):
+        try:
+            with open(GAME_SESSIONS_FILE, "r") as f:
+                loaded = json.load(f)
+                # Filter out expired sessions immediately
+                now = time.time()
+                GAME_SESSIONS = {t: s for t, s in loaded.items() if s.get("expiry", 0) > now}
+            logger.info(f"Loaded {len(GAME_SESSIONS)} active sessions from disk.")
+        except Exception as e:
+            logger.error(f"Error loading game sessions: {e}")
+
+# Initial load
+load_sessions()
 
 def generate_v_token(user_id, identifier, game_type):
     """Generate a verification token for a game session."""
@@ -105,6 +133,7 @@ def generate_v_token(user_id, identifier, game_type):
         "game_type": game_type,
         "expiry": time.time() + 7200
     }
+    save_sessions()
     return token
 
 def is_score_plausible(game_type, score, duration):
@@ -136,10 +165,14 @@ def verify_v_token(user_id, v_token):
             return None # Not found or already cleared
             
         if session["user_id"] != user_id:
+            logger.warning(f"Token user mismatch: session uid {session['user_id']} vs {user_id}")
             return None
             
         if time.time() > session["expiry"]:
-            del GAME_SESSIONS[v_token]
+            with session_lock:
+                if v_token in GAME_SESSIONS:
+                    del GAME_SESSIONS[v_token]
+            save_sessions()
             return None
             
         # We don't delete yet because we need start_time in set_score
@@ -167,7 +200,11 @@ def cleanup_tokens():
         now = time.time()
         expired = [t for t, s in GAME_SESSIONS.items() if now > s["expiry"]]
         for t in expired:
-            del GAME_SESSIONS[t]
+            with session_lock:
+                if t in GAME_SESSIONS:
+                    del GAME_SESSIONS[t]
+        if expired:
+            save_sessions()
         time.sleep(3600)
 
 threading.Thread(target=cleanup_tokens, daemon=True).start()
@@ -5230,7 +5267,9 @@ def main() -> None:
         # Reset session start_time for the next round instead of deleting it.
         # This allows multiple games per launch while keeping plausibility accurate for each round.
         if v_token in GAME_SESSIONS:
-            GAME_SESSIONS[v_token]["start_time"] = time.time()
+            with session_lock:
+                GAME_SESSIONS[v_token]["start_time"] = time.time()
+            save_sessions()
         # ----------------------
         
         bot_token = os.environ.get("BOT_TOKEN")
