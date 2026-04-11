@@ -306,35 +306,70 @@
         let songReady = false;
         let loadProgress = 0;
 
-        // ── Offline beat detection ──────────────────────────────────────
+        // ── Rush E Official Chart ──────────────────────────────────────
+        const RUSH_E_CHART = (function() {
+            const chart = [];
+            // Simple helper to add notes: time in seconds, column (0-3), frequency (Hz)
+            const add = (t, c, f) => chart.push({ t, c, f });
+
+            // A Minor / E Phrygian dominant frequencies
+            const A4 = 440.0, B4 = 493.88, C5 = 523.25, D5 = 587.33, E5 = 659.25, F5 = 698.46, G5 = 783.99;
+
+            // Intro (Melodic)
+            add(0.5, 0, A4);
+            add(1.2, 1, B4);
+            add(1.9, 2, C5);
+            add(2.6, 1, B4);
+            add(3.3, 0, A4);
+            add(4.0, 3, G5);
+            add(4.7, 0, A4);
+
+            // Buildup 1
+            for(let i=0; i<4; i++) {
+                let start = 6.0 + i * 2.0;
+                add(start, 0, A4);
+                add(start + 0.25, 1, B4);
+                add(start + 0.5, 2, C5);
+                add(start + 0.75, 3, D5);
+                add(start + 1.0, 2, C5);
+                add(start + 1.25, 1, B4);
+            }
+
+            // The 'E' repeating section (intense)
+            for(let i=0; i<20; i++) {
+                add(14.0 + i * 0.2, 3, E5);
+            }
+
+            // Climax run
+            for(let i=0; i<60; i++) {
+                let t = 18.0 + i * 0.12; 
+                add(t, i % 4, A4 + (i % 7) * 40);
+            }
+
+            // The "Impossible" Fast Part
+            for(let i=0; i<150; i++) {
+                let t = 26.0 + i * 0.08; 
+                add(t, (i * 3) % 4, A4 + (i % 12) * 30);
+                if (i % 6 === 0) add(t, (i * 3 + 1) % 4, E5);
+            }
+
+            return chart.sort((a, b) => a.t - b.t);
+        })();
+
         async function loadAndAnalyzeSong() {
             try {
                 loadProgress = 0.1;
-
-                // Fetch the raw audio data
                 const resp = await fetch('/piano-tiles/song2.mp3');
-                const arrayBuf = await resp.arrayBuffer();
-                loadProgress = 0.3;
-
-                // Decode for analysis
-                const offCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 1, 44100);
-                songBuffer = await offCtx.decodeAudioData(arrayBuf.slice(0)); // slice to avoid detached buffer
+                if (!resp.ok) throw new Error("Audio not found");
                 loadProgress = 0.5;
 
-                // Analyze beats
-                beatMap = detectBeats(songBuffer);
-                loadProgress = 0.8;
-
-                // Also set up the HTML audio element for playback
                 songElement = new Audio('/piano-tiles/song2.mp3');
                 songElement.crossOrigin = 'anonymous';
                 songElement.preload = 'auto';
-                songElement.loop = false; // Levels end the song
+                songElement.loop = false;
 
                 songElement.addEventListener('ended', () => {
-                    if (gameState === STATE.PLAYING) {
-                        onLevelCleared();
-                    }
+                    if (gameState === STATE.PLAYING) onLevelCleared();
                 });
 
                 await new Promise((resolve, reject) => {
@@ -346,93 +381,11 @@
                 loadProgress = 1.0;
                 songReady = true;
             } catch (e) {
-                console.error('Song load/analysis failed:', e);
-                // Fallback: generate a simple rhythmic beat map
-                beatMap = [];
-                const bpm = 120;
-                const interval = 60 / bpm;
-                for (let t = 0; t < 300; t += interval) {
-                    beatMap.push(t);
-                }
-
-                // Try loading audio element anyway
-                try {
-                    songElement = new Audio('/piano-tiles/song.mp3');
-                    songElement.crossOrigin = 'anonymous';
-                    songElement.loop = false;
-                    songElement.preload = 'auto';
-                    songElement.addEventListener('ended', () => {
-                        if (gameState === STATE.PLAYING) onLevelCleared();
-                    });
-                    await new Promise((resolve) => {
-                        songElement.addEventListener('canplaythrough', resolve, { once: true });
-                        songElement.addEventListener('error', resolve, { once: true });
-                        songElement.load();
-                    });
-                } catch (e2) { }
-
+                console.error('Song load failed:', e);
+                // Fallback to allow game play without actual audio if file is missing
                 loadProgress = 1.0;
                 songReady = true;
             }
-        }
-
-        function detectBeats(buffer) {
-            const data = buffer.getChannelData(0);
-            const sampleRate = buffer.sampleRate;
-            const frameSize = Math.floor(sampleRate * 0.02); // 20ms frames
-            const hopSize = Math.floor(frameSize / 2);        // 10ms hop
-            const numFrames = Math.floor((data.length - frameSize) / hopSize);
-
-            // 1. Compute energy per frame
-            const energies = new Float32Array(numFrames);
-            for (let i = 0; i < numFrames; i++) {
-                const start = i * hopSize;
-                let sum = 0;
-                for (let j = 0; j < frameSize; j++) {
-                    const s = data[start + j];
-                    sum += s * s;
-                }
-                energies[i] = sum / frameSize;
-            }
-
-            // 2. Compute spectral flux (energy difference)
-            const flux = new Float32Array(numFrames);
-            for (let i = 1; i < numFrames; i++) {
-                const diff = energies[i] - energies[i - 1];
-                flux[i] = diff > 0 ? diff : 0; // only positive changes (onsets)
-            }
-
-            // 3. Adaptive threshold — local mean + multiplier
-            const beats = [];
-            const windowSize = 40; // ~400ms window for local average
-            const multiplier = 1.6;
-            const minInterval = 0.15; // minimum 150ms between beats
-
-            for (let i = windowSize; i < numFrames - windowSize; i++) {
-                // Local average of flux
-                let localSum = 0;
-                for (let j = i - windowSize; j <= i + windowSize; j++) {
-                    localSum += flux[j];
-                }
-                const localAvg = localSum / (windowSize * 2 + 1);
-
-                const threshold = localAvg * multiplier + 0.0001;
-
-                if (flux[i] > threshold) {
-                    // Check it's a local peak
-                    if (flux[i] >= flux[i - 1] && flux[i] >= flux[i + 1]) {
-                        const time = (i * hopSize) / sampleRate;
-
-                        // Enforce minimum interval
-                        if (beats.length === 0 || time - beats[beats.length - 1] >= minInterval) {
-                            beats.push(time);
-                        }
-                    }
-                }
-            }
-
-            console.log(`Detected ${beats.length} beats in ${buffer.duration.toFixed(1)}s song`);
-            return beats;
         }
 
         function initAudio() {
@@ -474,23 +427,31 @@
             return songElement ? songElement.currentTime : 0;
         }
 
-        // Tap feedback sound
-        function playTapSound(col) {
+        // Tap feedback sound — updated for real note recognition
+        function playTapSound(col, freqOverride = null) {
             if (!audioCtx) return;
-            const freqs = [523.25, 587.33, 659.25, 783.99];
-            const freq = freqs[col % 4];
+            initAudio();
+
+            // Default frequencies if not provided
+            const defaultFreqs = [440.0, 493.88, 523.25, 659.25];
+            const freq = freqOverride || defaultFreqs[col % 4];
+
             const now = audioCtx.currentTime;
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
+
             osc.type = 'triangle';
             osc.frequency.setValueAtTime(freq, now);
+
+            // Pluck envelope
             gain.gain.setValueAtTime(0, now);
-            gain.gain.linearRampToValueAtTime(0.08, now + 0.008);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+            gain.gain.linearRampToValueAtTime(0.2, now + 0.005);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.start(now);
-            osc.stop(now + 0.2);
+            osc.stop(now + 0.4);
         }
 
         function playMissSound() {
@@ -501,7 +462,7 @@
             osc.type = 'sawtooth';
             osc.frequency.setValueAtTime(150, now);
             osc.frequency.linearRampToValueAtTime(80, now + 0.3);
-            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.setValueAtTime(0.2, now);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
             osc.connect(gain);
             gain.connect(audioCtx.destination);
@@ -574,56 +535,23 @@
         let lastBlackCol = -1;
 
         // ═══════════════════════════════════════════════════════════════════
-        //  TILE SYSTEM — pre-scheduled from beat map
+        //  TILE SYSTEM — pre-scheduled from Rush E chart
+        // ═══════════════════════════════════════════════════════════════════
         function generateTileGrid() {
             tiles = [];
-            lastBlackCol = -1;
+            // Constant visual speed that feels good for Piano Tiles
+            tileSpeed = H * 0.8; // Tiles travel 80% of screen per second
 
-            if (beatMap.length < 2) return;
-
-            // 1. Find the typical (median) beat gap to establish consistent sizing
-            let gaps = [];
-            for (let i = 0; i < beatMap.length - 1; i++) {
-                gaps.push(beatMap[i + 1] - beatMap[i]);
-            }
-            gaps.sort((a, b) => a - b);
-            let medianGap = gaps[Math.floor(gaps.length / 2)];
-
-            // 2. Filter out false-positive phantom beats that create randomly short tiles
-            let cleanBeats = [beatMap[0]];
-            for (let i = 1; i < beatMap.length; i++) {
-                let diff = beatMap[i] - cleanBeats[cleanBeats.length - 1];
-                if (diff > medianGap * 0.6) { // Must be at least 60% of a normal beat away
-                    cleanBeats.push(beatMap[i]);
-                }
-            }
-
-            avgBeatDuration = medianGap;
-            tileSpeed = (rowH) / avgBeatDuration; // Ensure 1 normal beat gap = exactly 1 rowH visually
-
-            for (let i = 0; i < cleanBeats.length; i++) {
-                let col;
-                do {
-                    col = Math.floor(Math.random() * COLS);
-                } while (col === lastBlackCol);
-                lastBlackCol = col;
-
-                let beatStart = cleanBeats[i];
-                let beatEnd = (i < cleanBeats.length - 1) ? cleanBeats[i + 1] : beatStart + avgBeatDuration;
-                let duration = beatEnd - beatStart;
-
-                // Intentional long gap forms a hold tile
-                let isHold = duration > avgBeatDuration * 1.5;
-
+            for (let i = 0; i < RUSH_E_CHART.length; i++) {
+                const note = RUSH_E_CHART[i];
                 tiles.push({
                     index: i,
-                    blackCol: col,
-                    beatStart: beatStart,
-                    beatEnd: beatEnd,
-                    isHold: isHold,
+                    blackCol: note.c,
+                    beatStart: note.t,
+                    beatEnd: note.t + 0.2, // Visual duration
+                    freq: note.f,          // Specific piano note
+                    isHold: false,         // Can be extended later if needed
                     tapped: false,
-                    holding: false,
-                    holdScoreTimer: 0,
                     tapScale: 0
                 });
             }
@@ -1060,21 +988,18 @@
                 targetTile.tapped = true;
                 targetTile.tapScale = 1.0;
 
-                if (targetTile.isHold) {
-                    targetTile.holding = true;
-                }
-
                 score++;
                 scoreHud.innerText = score;
                 scoreHud.style.transform = 'scale(1.15)';
                 setTimeout(() => scoreHud.style.transform = 'scale(1)', 100);
 
-                playTapSound(col);
+                // Play the specific note mapped to this tile!
+                playTapSound(col, targetTile.freq);
 
                 const songTime = getSongTime();
                 const px = col * colW + colW / 2;
                 const py = Math.min(getTileYBottom(targetTile, songTime) - 30, HIT_Y);
-                const colors = ['#555', '#333', '#777', '#222'];
+                const colors = ['#000', '#444', '#888'];
                 spawnParticles(px, py, colors[Math.floor(Math.random() * colors.length)], 6);
             } else {
                 // Wrong sequence column clicked—game over
