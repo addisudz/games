@@ -359,7 +359,7 @@
 
             const beats = [];
             const thresholdMultiplier = 1.95; 
-            const minInterval = 0.088;       
+            const minInterval = 0.088;       // Consolidated gap (88ms) - avoids unplayable clutter
             const peakWindow = 4;            
             const windowSize = 30;
 
@@ -400,10 +400,11 @@
                             let l1 = beats.length > 0 ? beats[beats.length - 1].c : -1;
                             let l2 = beats.length > 1 ? beats[beats.length - 2].c : -1;
                             
-                            let attempts = 0;
-                            while ((col === l1 || col === l2) && attempts < 10) {
-                                col = Math.floor(Math.random() * 4);
-                                attempts++;
+                            // Deterministically pick a lane that is NOT l1 or l2
+                            const forbidden = new Set([l1, l2]);
+                            const available = [0, 1, 2, 3].filter(c => !forbidden.has(c));
+                            if (!available.includes(col)) {
+                                col = available[Math.floor(Math.random() * available.length)];
                             }
 
                             beats.push({ t: time, c: col, f: freq });
@@ -566,11 +567,28 @@
 
             for (let i = 0; i < beatMap.length; i++) {
                 const note = beatMap[i];
+                
+                // Dynamic sizing: Ensure at least a 30% gap between tiles in the same lane
+                // Find next note in SAME column to calculate gap
+                let nextInLane = null;
+                for (let j = i + 1; j < beatMap.length; j++) {
+                    if (beatMap[j].c === note.c) {
+                        nextInLane = beatMap[j];
+                        break;
+                    }
+                }
+
+                let duration = 0.15; // default
+                if (nextInLane) {
+                    const gap = nextInLane.t - note.t;
+                    duration = Math.min(0.15, gap * 0.7); // Leave 30% gap
+                }
+
                 tiles.push({
                     index: i,
                     blackCol: note.c,
                     beatStart: note.t,
-                    beatEnd: note.t + 0.15, 
+                    beatEnd: note.t + duration, 
                     freq: note.f,          
                     tapped: false,
                     tapScale: 0
