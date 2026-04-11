@@ -168,7 +168,7 @@
         // ═══════════════════════════════════════════════════════════════════
         //  TELEGRAM (HARDENED)
         // ═══════════════════════════════════════════════════════════════════
-        (function() {
+        (function () {
             const urlParams = new URLSearchParams(window.location.search);
             const userId = urlParams.get('user_id');
             const inlineMessageId = urlParams.get('inline_message_id');
@@ -234,10 +234,10 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            user_id: userId, 
+                            user_id: userId,
                             score: sc,
                             inline_message_id: inlineMessageId,
-                            chat_id: chatId, 
+                            chat_id: chatId,
                             message_id: messageId,
                             v_token: vToken,
                             score_sig: scoreSig
@@ -303,7 +303,7 @@
                 loadProgress = 0.1;
 
                 // Fetch the raw audio data
-                const resp = await fetch('/piano-tiles/song.mp3');
+                const resp = await fetch('/piano-tiles/song2.mp3');
                 const arrayBuf = await resp.arrayBuffer();
                 loadProgress = 0.3;
 
