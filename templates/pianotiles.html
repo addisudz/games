@@ -174,17 +174,26 @@
             const inlineMessageId = urlParams.get('inline_message_id');
             const chatId = urlParams.get('chat_id');
             const messageId = urlParams.get('message_id');
-            const vToken = urlParams.get('v_token');
 
-            async function computeSignature(score, token) {
-                const encoder = new TextEncoder();
-                const keyData = encoder.encode(token);
-                // Obfuscation salt - must match backend
-                const s = "X7h9" + "_" + "P2q" + "_" + "K4v";
-                const scoreData = encoder.encode(s + ":" + score.toString());
-                const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-                const signature = await crypto.subtle.sign('HMAC', key, scoreData);
-                return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+            const GAME_SECRET = "{{ game_secret }}";
+
+            function rc4Encrypt(key, str) {
+                let s = [], j = 0, x, res = '';
+                for (let i = 0; i < 256; i++) {
+                    s[i] = i;
+                }
+                for (let i = 0; i < 256; i++) {
+                    j = (j + s[i] + key.charCodeAt(i % key.length)) % 256;
+                    x = s[i]; s[i] = s[j]; s[j] = x;
+                }
+                let i = 0; j = 0;
+                for (let y = 0; y < str.length; y++) {
+                    i = (i + 1) % 256;
+                    j = (j + s[i]) % 256;
+                    x = s[i]; s[i] = s[j]; s[j] = x;
+                    res += String.fromCharCode(str.charCodeAt(y) ^ s[(s[i] + s[j]) % 256]);
+                }
+                return res;
             }
 
             async function fetchLeaderboard() {
@@ -197,8 +206,7 @@
                             user_id: userId,
                             inline_message_id: inlineMessageId,
                             chat_id: chatId,
-                            message_id: messageId,
-                            v_token: vToken
+                            message_id: messageId
                         })
                     });
                     const data = await response.json();
@@ -218,7 +226,7 @@
                 const statusMsg = document.getElementById('sync-status-msg');
                 const syncSpinner = document.getElementById('sync-spinner');
                 const continueBtn = document.getElementById('sync-continue-btn');
-                if (scoreSubmitted || !userId || sc <= 0 || !vToken) return;
+                if (scoreSubmitted || !userId || sc <= 0) return;
                 scoreSubmitted = true;
 
                 if (!silent) {
@@ -229,19 +237,20 @@
                 }
 
                 try {
-                    const scoreSig = await computeSignature(sc, vToken);
+                    const payloadObj = {
+                        user_id: userId,
+                        score: sc,
+                        inline_message_id: inlineMessageId,
+                        chat_id: chatId,
+                        message_id: messageId
+                    };
+                    const jsonStr = JSON.stringify(payloadObj);
+                    const b64Payload = btoa(rc4Encrypt(GAME_SECRET, jsonStr));
+
                     const response = await fetch('/api/set_score', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            user_id: userId,
-                            score: sc,
-                            inline_message_id: inlineMessageId,
-                            chat_id: chatId,
-                            message_id: messageId,
-                            v_token: vToken,
-                            score_sig: scoreSig
-                        })
+                        body: JSON.stringify({ payload: b64Payload })
                     });
                     const data = await response.json();
                     if (response.ok && data.ok) {

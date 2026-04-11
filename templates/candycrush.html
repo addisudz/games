@@ -981,24 +981,37 @@ async function endGame() {
 //  SCORE SYNC (HARDENED)
 // ============================================================
 (function() {
-    const { userId, inlineMessageId, chatId, messageId, vToken } = window._tgData;
-    delete window._tgData;
+    const urlParams = new URLSearchParams(window.location.search);
+    const userId = urlParams.get('user_id');
+    const inlineMessageId = urlParams.get('inline_message_id');
+    const chatId = urlParams.get('chat_id');
+    const messageId = urlParams.get('message_id');
 
-    async function computeSignature(score, token) {
-        const encoder = new TextEncoder();
-        const keyData = encoder.encode(token);
-        // Obfuscation salt - must match backend
-        const s = "X7h9" + "_" + "P2q" + "_" + "K4v";
-        const scoreData = encoder.encode(s + ":" + score.toString());
-        const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-        const signature = await crypto.subtle.sign('HMAC', key, scoreData);
-        return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const GAME_SECRET = "{{ game_secret }}";
+
+    function rc4Encrypt(key, str) {
+        let s = [], j = 0, x, res = '';
+        for (let i = 0; i < 256; i++) {
+            s[i] = i;
+        }
+        for (let i = 0; i < 256; i++) {
+            j = (j + s[i] + key.charCodeAt(i % key.length)) % 256;
+            x = s[i]; s[i] = s[j]; s[j] = x;
+        }
+        let i = 0; j = 0;
+        for (let y = 0; y < str.length; y++) {
+            i = (i + 1) % 256;
+            j = (j + s[i]) % 256;
+            x = s[i]; s[i] = s[j]; s[j] = x;
+            res += String.fromCharCode(str.charCodeAt(y) ^ s[(s[i] + s[j]) % 256]);
+        }
+        return res;
     }
 
     let scoreSubmitted = false;
 
     async function performFullSync() {
-        if (scoreSubmitted || !userId || (!inlineMessageId && !chatId) || !vToken) {
+        if (scoreSubmitted || !userId) {
             renderLeaderboard([{ position: 1, user: {first_name: "Player 1"}, score: 5000 }, { position: 2, user: {first_name: "You"}, score: (typeof score !== 'undefined' ? score : 0) }]);
             return;
         }
@@ -1006,18 +1019,27 @@ async function endGame() {
 
         try {
             const currentScore = (typeof score !== 'undefined' ? score : 0);
-            const scoreSig = await computeSignature(currentScore, vToken);
-            const payload = { 
-                user_id: parseInt(userId), 
-                score: currentScore,
-                v_token: vToken,
-                score_sig: scoreSig
-            };
-            if (inlineMessageId) payload.inline_message_id = inlineMessageId;
-            if (chatId && messageId) { payload.chat_id = parseInt(chatId); payload.message_id = parseInt(messageId); }
             
-            await fetch('/api/set_score', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            const lbResp = await fetch('/api/get_leaderboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const payloadObj = {
+                user_id: userId,
+                score: currentScore,
+                inline_message_id: inlineMessageId,
+                chat_id: chatId,
+                message_id: messageId
+            };
+            const jsonStr = JSON.stringify(payloadObj);
+            const b64Payload = btoa(rc4Encrypt(GAME_SECRET, jsonStr));
+            
+            await fetch('/api/set_score', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ payload: b64Payload }) 
+            });
+
+            // For leaderboard, we still use the old params which main.py handles
+            // (Note: get_leaderboard logic in main.py wasn't changed to RC4 yet, but the user only asked for set_score security)
+            const lbPayload = { user_id: userId, inline_message_id: inlineMessageId, chat_id: chatId, message_id: messageId };
+            const lbResp = await fetch('/api/get_leaderboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(lbPayload) });
             if (lbResp.ok) {
                 const lbData = await lbResp.json();
                 if (lbData.ok) renderLeaderboard(lbData.result);

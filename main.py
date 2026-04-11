@@ -87,127 +87,27 @@ game_manager = GameManager()
 # --- SECURITY FOR HTML5 GAMES ---
 # Secret key for signing game scores (use BOT_TOKEN as base if GAME_SECRET not set)
 GAME_SECRET = os.environ.get("GAME_SECRET") or os.environ.get("BOT_TOKEN") or "dev_secret_key"
-GAME_SESSIONS_FILE = "game_sessions.json"
-GAME_SESSIONS = {} # token -> {"user_id": uid, "start_time": t, "game_type": gt, "expiry": exp}
-session_lock = threading.Lock()
 
-def save_sessions():
-    """Save active game sessions to a JSON file."""
-    try:
-        with session_lock:
-            with open(GAME_SESSIONS_FILE, "w") as f:
-                json.dump(GAME_SESSIONS, f)
-    except Exception as e:
-        logger.error(f"Error saving game sessions: {e}")
-
-def load_sessions():
-    """Load active game sessions from a JSON file."""
-    global GAME_SESSIONS
-    if os.path.exists(GAME_SESSIONS_FILE):
-        try:
-            with open(GAME_SESSIONS_FILE, "r") as f:
-                loaded = json.load(f)
-                # Filter out expired sessions immediately
-                now = time.time()
-                GAME_SESSIONS = {t: s for t, s in loaded.items() if s.get("expiry", 0) > now}
-            logger.info(f"Loaded {len(GAME_SESSIONS)} active sessions from disk.")
-        except Exception as e:
-            logger.error(f"Error loading game sessions: {e}")
-
-# Initial load
-load_sessions()
-
-def generate_v_token(user_id, identifier, game_type):
-    """Generate a verification token for a game session."""
-    timestamp = str(int(time.time()))
-    # Add a random salt to ensure uniqueness in high-frequency requests
-    salt = secrets.token_hex(4)
-    data = f"{user_id}:{identifier}:{timestamp}:{salt}"
-    signature = hmac.new(GAME_SECRET.encode(), data.encode(), hashlib.sha256).hexdigest()
-    token = f"{timestamp}:{salt}:{signature}"
-    
-    # Store session metadata for duration/plausibility checks
-    GAME_SESSIONS[token] = {
-        "user_id": user_id,
-        "start_time": time.time(),
-        "game_type": game_type,
-        "expiry": time.time() + 7200
-    }
-    save_sessions()
-    return token
-
-def is_score_plausible(game_type, score, duration):
-    """Check if the score is physically possible in the given time."""
-    if duration < 1: duration = 1 # Avoid division by zero
-    
-    limits = {
-        "flappybird": 2.5,     # pipes per second
-        "typerace": 250,       # WPM (this is points in our case)
-        "tilepuzzle": 150,     # points per second (2048)
-        "pianotiles": 30,      # tiles per second
-        "candycrush": 2000     # points per second (can be high due to combos)
-    }
-    
-    limit = limits.get(game_type, 1000) # Default high limit if unknown
-    
-    if game_type == "typerace":
-        # typerace score is already WPM or close to it, check against 250
-        return score <= 250
+def rc4_decrypt(key: str, data: bytes) -> str:
+    """RC4 symmetric decryption implementation for fast payload decoding."""
+    S = list(range(256))
+    j = 0
+    key_bytes = key.encode('utf-8')
+    for i in range(256):
+        j = (j + S[i] + key_bytes[i % len(key_bytes)]) % 256
+        S[i], S[j] = S[j], S[i]
         
-    pts_per_sec = score / duration
-    return pts_per_sec <= limit
+    i = j = 0
+    out = []
+    for char in data:
+        i = (i + 1) % 256
+        j = (j + S[i]) % 256
+        S[i], S[j] = S[j], S[i]
+        out.append(char ^ S[(S[i] + S[j]) % 256])
+        
+    return bytes(out).decode('utf-8', errors='ignore')
 
-def verify_v_token(user_id, v_token):
-    """Verify a verification token."""
-    try:
-        session = GAME_SESSIONS.get(v_token)
-        if not session:
-            return None # Not found or already cleared
-            
-        if session["user_id"] != user_id:
-            logger.warning(f"Token user mismatch: session uid {session['user_id']} vs {user_id}")
-            return None
-            
-        if time.time() > session["expiry"]:
-            with session_lock:
-                if v_token in GAME_SESSIONS:
-                    del GAME_SESSIONS[v_token]
-            save_sessions()
-            return None
-            
-        # We don't delete yet because we need start_time in set_score
-        # It will be deleted in set_score or by cleanup_tokens
-        return session
-    except Exception as e:
-        logger.error(f"Token verification error: {e}")
-        return None
-
-def verify_score_signature(score, v_token, score_sig):
-    """Verify that the score was signed with the v_token and salt."""
-    try:
-        # Obfuscation salt - must match frontend
-        SALT = "X7h9_P2q_K4v" 
-        data_to_sign = f"{SALT}:{score}"
-        expected_sig = hmac.new(v_token.encode(), data_to_sign.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(score_sig, expected_sig)
-    except Exception as e:
-        logger.error(f"Score signature verification error: {e}")
-        return False
-
-# Clean up sessions occasionally
-def cleanup_tokens():
-    while True:
-        now = time.time()
-        expired = [t for t, s in GAME_SESSIONS.items() if now > s["expiry"]]
-        for t in expired:
-            with session_lock:
-                if t in GAME_SESSIONS:
-                    del GAME_SESSIONS[t]
-        if expired:
-            save_sessions()
-        time.sleep(3600)
-
-threading.Thread(target=cleanup_tokens, daemon=True).start()
+import base64
 # ---------------------------------
 
 # Global task tracker for game-related background tasks (timers, hints, reminders)
@@ -5092,10 +4992,8 @@ async def handle_game_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     # Check if the callback query contains a game short name
     if getattr(query, 'game_short_name', None) == "flappybird":
         base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "https://flappybird-test.example.com"
-        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
-        v_token = generate_v_token(user_id, identifier)
         
-        game_url = f"{base_url}/flappybird?user_id={user_id}&v_token={v_token}"
+        game_url = f"{base_url}/flappybird?user_id={user_id}"
         if query.inline_message_id:
             game_url += f"&inline_message_id={query.inline_message_id}"
         else:
@@ -5109,12 +5007,8 @@ async def handle_game_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if game_short_name in ["flappybird", "typerace", "tilepuzzle", "pianotiles", "candycrush"]:
         base_url = os.environ.get("GAME_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or f"https://{game_short_name}-test.example.com"
-        identifier = query.inline_message_id or (f"{query.message.chat.id}:{query.message.message_id}" if query.message else "unknown")
         
-        # Now passing 3 arguments as required by new definition
-        v_token = generate_v_token(user_id, identifier, game_short_name)
-        
-        game_url = f"{base_url}/{game_short_name}?user_id={user_id}&v_token={v_token}"
+        game_url = f"{base_url}/{game_short_name}?user_id={user_id}"
         if query.inline_message_id:
             game_url += f"&inline_message_id={query.inline_message_id}"
         else:
@@ -5210,23 +5104,23 @@ def main() -> None:
 
     @app.route('/flappybird')
     def flappybird():
-        return render_template('flappybird.html')
+        return render_template('flappybird.html', game_secret=GAME_SECRET)
 
     @app.route('/typerace')
     def typerace():
-        return render_template('typerace.html')
+        return render_template('typerace.html', game_secret=GAME_SECRET)
 
     @app.route('/tilepuzzle')
     def tilepuzzle():
-        return render_template('2048.html')
+        return render_template('2048.html', game_secret=GAME_SECRET)
 
     @app.route('/pianotiles')
     def pianotiles():
-        return render_template('pianotiles.html')
+        return render_template('pianotiles.html', game_secret=GAME_SECRET)
 
     @app.route('/candycrush')
     def candycrush():
-        return render_template('candycrush.html')
+        return render_template('candycrush.html', game_secret=GAME_SECRET)
 
     @app.route('/api/set_score', methods=['POST'])
     def set_score():
@@ -5234,43 +5128,22 @@ def main() -> None:
         if not data:
             return jsonify({"error": "No data"}), 400
             
-        user_id = data.get('user_id')
-        score = data.get('score')
-        inline_message_id = data.get('inline_message_id')
-        chat_id = data.get('chat_id')
-        message_id = data.get('message_id')
-        v_token = data.get('v_token')
-        score_sig = data.get('score_sig')
-        
-        # --- SECURITY CHECK ---
-        identifier = inline_message_id or (f"{chat_id}:{message_id}" if chat_id and message_id else "unknown")
-        
-        if not v_token or not score_sig:
-            logger.warning(f"Rejected set_score: Missing security data. user_id: {user_id}")
-            return jsonify({"ok": False, "error": "Missing security tokens"}), 403
+        payload_b64 = data.get('payload')
+        if not payload_b64:
+            return jsonify({"error": "Missing payload"}), 400
             
-        session = verify_v_token(user_id, v_token)
-        if not session:
-            logger.warning(f"Rejected set_score: Invalid or reused v_token. user_id: {user_id}")
-            return jsonify({"ok": False, "error": "Invalid or expired session"}), 403
+        try:
+            decrypted_str = rc4_decrypt(GAME_SECRET, base64.b64decode(payload_b64))
+            payload = json.loads(decrypted_str)
+        except Exception as e:
+            logger.error(f"Payload decryption failed: {e}")
+            return jsonify({"ok": False, "error": "Invalid payload"}), 403
             
-        if not verify_score_signature(score, v_token, score_sig):
-            logger.warning(f"Rejected set_score: Invalid score signature. user_id: {user_id}, score: {score}")
-            return jsonify({"ok": False, "error": "Score verification failed"}), 403
-            
-        # --- PLAUSIBILITY CHECK ---
-        duration = time.time() - session["start_time"]
-        if not is_score_plausible(session["game_type"], score, duration):
-            logger.warning(f"Rejected set_score: IMPOSSIBLE SCORE. user_id: {user_id}, score: {score}, duration: {duration:.2f}s, game: {session['game_type']}")
-            return jsonify({"ok": False, "error": "Impossible score detected"}), 403
-            
-        # Reset session start_time for the next round instead of deleting it.
-        # This allows multiple games per launch while keeping plausibility accurate for each round.
-        if v_token in GAME_SESSIONS:
-            with session_lock:
-                GAME_SESSIONS[v_token]["start_time"] = time.time()
-            save_sessions()
-        # ----------------------
+        user_id = payload.get('user_id')
+        score = payload.get('score')
+        inline_message_id = payload.get('inline_message_id')
+        chat_id = payload.get('chat_id')
+        message_id = payload.get('message_id')
         
         bot_token = os.environ.get("BOT_TOKEN")
         url = f"https://api.telegram.org/bot{bot_token}/setGameScore"
