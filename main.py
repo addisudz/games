@@ -240,6 +240,9 @@ GAMES_METADATA = {
     "25": ("Bingo", "2")
 }
 
+# Games that definitely require private DM access to see cards/clues
+GAMES_REQUIRING_DM = ["3", "17", "25"]
+
 
 async def is_user_mod(chat: Chat, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check if a user is a moderator (Admin or Owner) in the group."""
@@ -343,6 +346,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     chat = update.effective_chat
     user = update.effective_user
     
+    # Check for deep-link arguments (e.g., /start join_-1001234567)
+    if context.args:
+        arg = context.args[0]
+        if arg.startswith("join_"):
+            try:
+                target_chat_id = int(arg.replace("join_", ""))
+                # Automate join for this user in that chat
+                await _perform_join_internal(target_chat_id, user, context, is_auto_join=True)
+                return
+            except (ValueError, IndexError):
+                pass
+
     # Only work in groups
     if chat.type == ChatType.PRIVATE:
         await update.message.reply_text(
@@ -1685,65 +1700,75 @@ async def start_round(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def _perform_join_internal(chat_id: int, user, context: ContextTypes.DEFAULT_TYPE, is_auto_join: bool = False) -> bool:
+    """Core logic to add a player to a game session and provide feedback info."""
+    session = game_manager.get_game(chat_id)
+    if not session:
+        if is_auto_join:
+            await context.bot.send_message(chat_id=user.id, text="⚠️ No active game found in that group anymore.")
+        return False
+
+    if session.state != GameState.JOINING:
+        if is_auto_join:
+            await context.bot.send_message(chat_id=user.id, text="⚠️ The game has already started or is in another state.")
+        return False
+
+    # Check if DM is required and if we can access user's DM
+    if session.game_code in GAMES_REQUIRING_DM:
+        try:
+            # Test DM access
+            await context.bot.send_chat_action(chat_id=user.id, action="typing")
+        except Exception:
+            # Notify that they need to start a chat
+            bot_info = await context.bot.get_me()
+            bot_username = bot_info.username
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Start Private Chat", url=f"https://t.me/{bot_username}?start=join_{chat_id}")]
+            ])
+            
+            error_text = f"⚠️ <a href=\"tg://user?id={user.id}\">{user.first_name}</a>, you need to start a private chat with me first so I can send you game info!"
+            if is_auto_join:
+                await context.bot.send_message(chat_id=user.id, text="Please click 'Start' in our DM so I can message you.")
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=error_text, reply_markup=keyboard, parse_mode="HTML")
+            return False
+
+    display_name = user.first_name or user.username or "Player"
+    if session.add_player(user.id, display_name):
+        join_msg = f'✅ <a href="tg://user?id={user.id}">{display_name}</a> joined the game! ({session.get_player_count()} players)'
+        await context.bot.send_message(chat_id=chat_id, text=join_msg, parse_mode="HTML")
+        if is_auto_join:
+            await context.bot.send_message(chat_id=user.id, text=f"✅ You have successfully joined the game in the group!")
+        return True
+    else:
+        if is_auto_join:
+            await context.bot.send_message(chat_id=user.id, text="⚠️ You are already in that game!")
+        else:
+            await context.bot.send_message(chat_id=chat_id, text="⚠️ You're already in the game!", parse_mode="HTML")
+        return False
+
 async def join_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /join command for players to join the game."""
     chat = update.effective_chat
     user = update.effective_user
     
     if chat.type == ChatType.PRIVATE:
+        await update.message.reply_text("This command only works in groups.")
         return
     
     session = game_manager.get_game(chat.id)
-    
-    # Give feedback if no game or wrong state
     if not session:
-        await update.message.reply_text(
-            "⚠️ No game in progress. Use /start to begin a new game!",
-            parse_mode="HTML"
-        )
+        await update.message.reply_text("⚠️ No game in progress. Use /start to begin a new game!", parse_mode="HTML")
         return
-    
+
     if session.state != GameState.JOINING:
         if session.state == GameState.WAITING_FOR_GAME_CODE:
-            await update.message.reply_text(
-                "⚠️ Please select a game code first!",
-                parse_mode="HTML"
-            )
-        elif session.state == GameState.IN_PROGRESS:
+            await update.message.reply_text("⚠️ Please select a game code first!")
+        else:
             await update.message.reply_text(random.choice(QUIRKY_RESPONSES))
         return
-    
-    # Add player
-    if session.game_code == "3":
-        try:
-            # Check if we can send message to user
-            await context.bot.send_chat_action(chat_id=user.id, action="typing")
-        except Exception:
-            # Can't send message to user
-            bot_username = context.bot.username
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Start Private Chat", url=f"https://t.me/{bot_username}?start=join")]
-            ])
-            await update.message.reply_text(
-                f"⚠️ <a href=\"tg://user?id={user.id}\">{user.first_name}</a>, you need to start a private chat with me first!",
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-            return
 
-    # Calculate display name (prefer first name)
-    display_name = user.first_name or user.username or "Player"
-
-    if session.add_player(user.id, display_name):
-        await update.message.reply_text(
-            f'✅ <a href="tg://user?id={user.id}">{display_name}</a> joined the game! ({session.get_player_count()} players)',
-            parse_mode="HTML"
-        )
-    else:
-        await update.message.reply_text(
-            "⚠️ You're already in the game!",
-            parse_mode="HTML"
-        )
+    await _perform_join_internal(chat.id, user, context)
 
 
 async def end_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
