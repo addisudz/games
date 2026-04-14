@@ -13,6 +13,7 @@ from typing import Optional, Dict, List, Tuple, Union
 from dotenv import load_dotenv
 load_dotenv()
 import requests
+import re
 from flask import Flask, render_template, request, jsonify
 
 from telegram import Update, Chat, ChatMember, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton, ReactionTypeEmoji
@@ -58,6 +59,7 @@ from hear_me_out import HearMeOutGame
 from name_the_player import NameThePlayerGame
 from movie_scene import MovieSceneGame
 from rummy import RummyGame
+from bingo import BingoGame
 from settings_manager import settings_manager
 from leaderboard import (
     record_game_scores,
@@ -204,7 +206,7 @@ GAME_CATEGORIES = {
         "games": [("3", "Guess the Imposter"), ("14", "The Silent Game"), ("15", "20 Questions"), ("21", "Hear Me Out"), ("24", "Put A Finger Down")]
     },
     "Card Games": {
-        "games": [("17", "Rummy")]
+        "games": [("17", "Rummy"), ("25", "Bingo")]
     }
 }
 
@@ -234,7 +236,8 @@ GAMES_METADATA = {
     "21": ("Hear Me Out", "2"),
     "22": ("Name the Player", "2"),
     "23": ("Movie Scene", "2"),
-    "24": ("Put A Finger Down", "2")
+    "24": ("Put A Finger Down", "2"),
+    "25": ("Bingo", "2")
 }
 
 
@@ -571,7 +574,8 @@ async def handle_game_menu_callback(update: Update, context: ContextTypes.DEFAUL
                 "21": ("Hear Me Out", "2"),
                 "22": ("Name the Player", "2"),
                 "23": ("Movie Scene", "2"),
-                "24": ("Put A Finger Down", "2")
+                "24": ("Put A Finger Down", "2"),
+                "25": ("Bingo", "2")
             }
             
             game_name, min_players = game_info.get(game_code, ("General Knowledge", "2"))
@@ -724,6 +728,9 @@ async def start_game_after_delay(chat_id: int, context: ContextTypes.DEFAULT_TYP
         elif session.game_code == "24":
             # Put A Finger Down
             await start_finger_game(chat_id, context, session)
+        elif session.game_code == "25":
+            # Bingo
+            await start_bingo_game(chat_id, context, session)
 
 
 async def start_hear_me_out_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
@@ -1392,6 +1399,22 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Handle The Silent Game
         elif session.game_code == "14":
             await process_silent_game_content(update, context, session)
+
+        # Handle Bingo Game (Text Fallback for moves)
+        elif session.game_code == "25":
+            # Looking for "🎲 {name} plays → {number}"
+            # This is sent via inline result, but we catch it here if ChosenInlineResult doesn't fire
+            text = message.text
+            if "plays →" in text and "🎲" in text:
+                match = re.search(r"plays →\s*(\d+)", text)
+                if match:
+                    try:
+                        number = int(match.group(1))
+                        await process_bingo_number(chat.id, user.id, number, context, session)
+                    except Exception as e:
+                        logger.error(f"Error processing bingo text move: {e}")
+            return
+
 
         # Handle 20 Questions Game
         elif session.game_code == "15":
@@ -3783,6 +3806,73 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await iq.answer(results, cache_time=0, is_personal=True)
         return
 
+    # 4. Handle Bingo number selection
+    # Query format: "bingo_{chat_id} {number}"
+    elif query_text.startswith("bingo_"):
+        # Parse chat_id and number from query
+        # e.g. "bingo_-1001234567890 7"
+        try:
+            rest = query_text[len("bingo_"):]
+            parts = rest.split(" ", 1)
+            target_chat_id = int(parts[0])
+            number = int(parts[1]) if len(parts) > 1 else None
+        except (ValueError, IndexError):
+            await iq.answer([], cache_time=0, is_personal=True)
+            return
+
+        session = game_manager.get_game(target_chat_id)
+        if not session or session.game_code != "25" or not session.game:
+            await iq.answer(
+                [InlineQueryResultArticle(
+                    id="bingo_gone",
+                    title="No active Bingo game in that group",
+                    input_message_content=InputTextMessageContent("No active Bingo game found.")
+                )],
+                cache_time=1, is_personal=True
+            )
+            return
+
+        game: BingoGame = session.game
+
+        # Validate: only the current player can play
+        if user.id != game.current_player_id:
+            await iq.answer(
+                [InlineQueryResultArticle(
+                    id="bingo_notturn",
+                    title="❌ It's not your turn!",
+                    input_message_content=InputTextMessageContent("It's not your turn in Bingo.")
+                )],
+                cache_time=0, is_personal=True
+            )
+            return
+
+        if number is None or number in game.called_numbers or number not in game.cards.get(user.id, []):
+            await iq.answer(
+                [InlineQueryResultArticle(
+                    id="bingo_invalid",
+                    title="❌ Invalid number!",
+                    input_message_content=InputTextMessageContent("That number is invalid or already called.")
+                )],
+                cache_time=0, is_personal=True
+            )
+            return
+
+        player_name = game.players.get(user.id, user.first_name)
+        result_id = f"bingo_{target_chat_id}_{number}"
+
+        results = [InlineQueryResultArticle(
+            id=result_id,
+            title=f"▶️ Play number {number}",
+            description=f"Calls {number} for all players' cards",
+            input_message_content=InputTextMessageContent(
+                f"🎲 <b>{player_name}</b> plays → <code>{number}</code>",
+                parse_mode="HTML"
+            )
+        )]
+
+        await iq.answer(results, cache_time=0, is_personal=True)
+        return
+
 async def handle_sticker_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Route sticker messages to the appropriate game handler (Rummy)."""
     message = update.effective_message
@@ -4001,6 +4091,23 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
             # Check if everyone has answered for this round
             if not session.game.get_non_responders():
                 pass # Handled by round advance logic
+        return
+
+    # 4. Handle Bingo number played via inline
+    # result_id format: "bingo_{chat_id}_{number}"
+    elif result_id.startswith("bingo_"):
+        try:
+            parts = result_id.split("_", 2)  # ['bingo', '{chat_id}', '{number}']
+            bingo_chat_id = int(parts[1])
+            bingo_number = int(parts[2])
+        except (ValueError, IndexError):
+            return
+
+        session = game_manager.get_game(bingo_chat_id)
+        if not session or session.game_code != "25" or not session.game:
+            return
+
+        await process_bingo_number(bingo_chat_id, user.id, bingo_number, context, session)
         return
 
 
@@ -4381,6 +4488,229 @@ async def post_init(application: Application) -> None:
     asyncio.create_task(ensure_memes_cached(dummy_context))
     asyncio.create_task(ensure_stickers_cached(dummy_context))
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BINGO  (game code "25")
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def start_bingo_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
+    """Start the Bingo game: generate cards, announce order, send private cards."""
+    game: BingoGame = session.game
+
+    if not game.start_game():
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ Bingo requires 2+ players. Game cancelled.",
+        )
+        session.end_game()
+        game_manager.remove_game(chat_id)
+        return
+
+    n = len(game.players)
+
+    order_lines = []
+    for i, pid in enumerate(game.player_ids):
+        order_lines.append(
+            f"{i + 1}. <a href=\"tg://user?id={pid}\">{game.players[pid]}</a>"
+        )
+    order_text = "\n".join(order_lines)
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"🎰 <b>BINGO has started!</b> 🎰\n\n"
+            f"👥 <b>{n} players</b> — each has a unique 5×5 card (numbers 1–25).\n\n"
+            f"<b>Turn order:</b>\n{order_text}\n\n"
+            f"<b>How to play:</b>\n"
+            f"• On your turn, open your private card (sent in DM) and tap a number.\n"
+            f"• Pick this group from the chat list, then tap the number to send it here.\n"
+            f"• That number gets marked on <i>everyone's</i> cards.\n"
+            f"• Complete a row, column, or diagonal → earn a <b>BINGO letter</b>.\n"
+            f"• Collect all 5 — <b>B · I · N · G · O</b> — to win! 🏆"
+        ),
+        parse_mode="HTML"
+    )
+
+    await _send_all_bingo_cards(chat_id, context, session)
+    await send_bingo_turn_message(chat_id, context, session)
+
+
+async def _send_all_bingo_cards(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
+    """Delete old private card messages and send fresh ones to every player."""
+    game: BingoGame = session.game
+
+    for pid in game.player_ids:
+        old_msg_id = game.card_message_ids.get(pid)
+        if old_msg_id:
+            try:
+                await context.bot.delete_message(chat_id=pid, message_id=old_msg_id)
+            except Exception:
+                pass
+
+        keyboard = game.build_card_keyboard(pid, chat_id)
+        text = game.build_card_text(pid)
+        try:
+            msg = await context.bot.send_message(
+                chat_id=pid,
+                text=text,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            game.card_message_ids[pid] = msg.message_id
+        except Exception as e:
+            logger.warning(f"Could not send Bingo card to user {pid}: {e}")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    f"⚠️ Could not send private card to "
+                    f"<a href=\"tg://user?id={pid}\">{game.players[pid]}</a>. "
+                    f"Please start a DM with me first!"
+                ),
+                parse_mode="HTML"
+            )
+
+
+async def send_bingo_turn_message(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
+    """Announce whose turn it is in the group."""
+    game: BingoGame = session.game
+    cp = game.current_player_id
+    player_name = game.players[cp]
+
+    called_list = sorted(game.called_numbers)
+    called_text = ", ".join(str(n) for n in called_list) if called_list else "None yet"
+
+    # Build progress display for all players
+    progress_lines = []
+    for pid in game.player_ids:
+        marker = "👉 " if pid == cp else "   "
+        letters = game.get_bingo_display(pid)
+        name = game.players[pid]
+        progress_lines.append(f"{marker}<a href=\"tg://user?id={pid}\">{name}</a> — <b>{letters}</b>")
+    progress_text = "\n".join(progress_lines)
+
+    global BOT_USERNAME
+    if not BOT_USERNAME:
+        BOT_USERNAME = (await context.bot.get_me()).username
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Open Private Chat", url=f"https://t.me/{BOT_USERNAME}")
+    ]])
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"<b><a href=\"tg://user?id={cp}\">{player_name}</a>'s turn!</b>\n\n"
+            f"Numbers called: <b>{called_text}</b>\n\n"
+            f"{progress_text}\n\n"
+            f"Open your DM and tap a number to play."
+        ),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+async def process_bingo_number(
+    chat_id: int,
+    user_id: int,
+    number: int,
+    context: ContextTypes.DEFAULT_TYPE,
+    session
+) -> None:
+    """
+    Process a number played by the current Bingo player.
+    Called from chosen_inline_result_handler when result_id starts with 'bingo_'.
+    """
+    game: BingoGame = session.game
+
+    success, err = game.call_number(user_id, number)
+    if not success:
+        try:
+            await context.bot.send_message(chat_id=user_id, text=f"⚠️ {err}")
+        except Exception:
+            pass
+        return
+
+    player_name = game.players[user_id]
+    # Note: the inline result message already shows "🎲 PlayerName plays → N" in the group.
+
+    # Check BINGO progress for ALL players
+    bingo_announcements: List[str] = []
+    bingo_winner_id: Optional[int] = None
+
+    for pid in game.player_ids:
+        earned = game.update_bingo_letters(pid)
+        if earned:
+            current_letters = game.get_bingo_display(pid)
+            bingo_announcements.append(
+                f"<a href=\"tg://user?id={pid}\">{game.players[pid]}</a>"
+                f" earns <b>{''.join(earned)}</b> → <b>{current_letters}</b>"
+            )
+        if game.has_bingo(pid) and bingo_winner_id is None:
+            bingo_winner_id = pid
+
+    if bingo_announcements:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="\n".join(bingo_announcements),
+            parse_mode="HTML"
+        )
+
+    # Refresh every player's private card (delete old → send new with 🔴 marks)
+    await _send_all_bingo_cards(chat_id, context, session)
+
+    # Handle winner
+    if bingo_winner_id is not None:
+        game.game_over = True
+        game.winner_id = bingo_winner_id
+        winner_name = game.players[bingo_winner_id]
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"🏆 <b>BINGO!</b> 🏆\n\n"
+                f"🎉 <a href=\"tg://user?id={bingo_winner_id}\">{winner_name}</a>"
+                f" wins by completing all 5 lines!\n\n"
+                f"🎰 <b>B · I · N · G · O</b>"
+            ),
+            parse_mode="HTML"
+        )
+        await end_game(chat_id, context, session)
+        return
+
+    # Advance turn
+    game.advance_turn()
+    session.reset_turn_timer()
+    await send_bingo_turn_message(chat_id, context, session)
+
+
+async def handle_bingo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle callback button presses for Bingo (noop / show order)."""
+    query = update.callback_query
+    data = query.data
+
+    if data == "bingo_noop":
+        await query.answer("Already marked!" if "🔴" else "")
+        return
+
+    if data == "bingo_show_order":
+        chat_id = query.message.chat_id
+        session = game_manager.get_game(chat_id)
+        if session and session.game_code == "25" and session.game:
+            game: BingoGame = session.game
+            await query.answer()
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=game.get_order_text(),
+                parse_mode="HTML"
+            )
+        else:
+            await query.answer("No active Bingo game.")
+        return
+
+    await query.answer()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 async def start_rummy_game(chat_id: int, context: ContextTypes.DEFAULT_TYPE, session) -> None:
     """Start the Rummy game: deal cards, show order, send starting discard card."""
@@ -5058,6 +5388,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_ts_callback, pattern="^ts_vote_"))
     application.add_handler(CallbackQueryHandler(handle_quit_vote_callback, pattern="^quit_game_vote$"))
     application.add_handler(CallbackQueryHandler(handle_20q_callback, pattern="^view_secret_word$"))
+    application.add_handler(CallbackQueryHandler(handle_bingo_callback, pattern="^bingo_"))
     
     # Catch all callback query handlers that have not been filtered out by pattern. This includes games.
     application.add_handler(CallbackQueryHandler(handle_game_callback))

@@ -25,6 +25,7 @@ from name_the_player import NameThePlayerGame
 from movie_scene import MovieSceneGame
 from rummy import RummyGame
 from put_a_finger_down import PutAFingerDownGame
+from bingo import BingoGame
 
 
 
@@ -49,7 +50,7 @@ class GameSession:
         self.state = GameState.WAITING_FOR_GAME_CODE
         self.game_code: Optional[str] = None
         self.players: Set[int] = set()  # Set of user IDs
-        self.game: Optional[Union[WordUnscrambleGame, StoryBuilderGame, GuessTheImposterGame, GuessTheLogoGame, GuessMojiGame, GuessTheMovieGame, GuessTheFlagGame, SoccerTriviaGame, GeneralKnowledgeGame, GuessCharacterGame, WordConnectGame, MemeGame, TaylorShakespeareGame, SilentGame, TwentyQuestionsGame, GuessTheSongGame, RummyGame, GuessTheBookGame, GuessMarvelGame, GuessAddisGame, HearMeOutGame, NameThePlayerGame, MovieSceneGame, PutAFingerDownGame]] = None
+        self.game: Optional[Union[WordUnscrambleGame, StoryBuilderGame, GuessTheImposterGame, GuessTheLogoGame, GuessMojiGame, GuessTheMovieGame, GuessTheFlagGame, SoccerTriviaGame, GeneralKnowledgeGame, GuessCharacterGame, WordConnectGame, MemeGame, TaylorShakespeareGame, SilentGame, TwentyQuestionsGame, GuessTheSongGame, RummyGame, GuessTheBookGame, GuessMarvelGame, GuessAddisGame, HearMeOutGame, NameThePlayerGame, MovieSceneGame, PutAFingerDownGame, BingoGame]] = None
 
         self.joining_deadline: Optional[datetime] = None
         
@@ -192,6 +193,11 @@ class GameSession:
             self.game = PutAFingerDownGame(total_rounds=15)
             self.state = GameState.JOINING
             return True
+        elif code == "25":
+            self.game_code = code
+            self.game = BingoGame()
+            self.state = GameState.JOINING
+            return True
 
         return False
     
@@ -211,7 +217,7 @@ class GameSession:
         self.players.add(user_id)
         if self.game:
             # Handle different game signatures
-            if isinstance(self.game, (StoryBuilderGame, GuessTheImposterGame, GuessTheLogoGame, GuessTheMovieGame, GuessTheFlagGame, SoccerTriviaGame, GeneralKnowledgeGame, GuessCharacterGame, WordConnectGame, MemeGame, TaylorShakespeareGame, SilentGame, TwentyQuestionsGame, GuessTheSongGame, RummyGame, GuessTheBookGame, GuessMarvelGame, GuessAddisGame, HearMeOutGame, NameThePlayerGame, MovieSceneGame, PutAFingerDownGame)):
+            if isinstance(self.game, (StoryBuilderGame, GuessTheImposterGame, GuessTheLogoGame, GuessTheMovieGame, GuessTheFlagGame, SoccerTriviaGame, GeneralKnowledgeGame, GuessCharacterGame, WordConnectGame, MemeGame, TaylorShakespeareGame, SilentGame, TwentyQuestionsGame, GuessTheSongGame, RummyGame, GuessTheBookGame, GuessMarvelGame, GuessAddisGame, HearMeOutGame, NameThePlayerGame, MovieSceneGame, PutAFingerDownGame, BingoGame)):
 
                 display_name = username or "Player"
                 self.game.add_player(user_id, display_name)
